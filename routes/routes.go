@@ -1,0 +1,3 @@
+package routes
+
+// Route registration
