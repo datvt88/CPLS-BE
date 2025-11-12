@@ -1,0 +1,182 @@
+{{ define "content" }}
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5><i class="bi bi-robot"></i> Bot Control</h5>
+            </div>
+            <div class="card-body text-center">
+                <h2>
+                    {{ if .botRunning }}
+                        <span class="badge bg-success" style="font-size: 24px;">Running</span>
+                    {{ else }}
+                        <span class="badge bg-secondary" style="font-size: 24px;">Stopped</span>
+                    {{ end }}
+                </h2>
+
+                <p class="mt-3 text-muted">
+                    The trading bot monitors market conditions and executes trades automatically.
+                </p>
+
+                <hr>
+
+                {{ if .botRunning }}
+                    <button class="btn btn-danger btn-lg w-100" onclick="stopBot()">
+                        <i class="bi bi-stop-circle"></i> Stop Bot
+                    </button>
+                {{ else }}
+                    <button class="btn btn-success btn-lg w-100" onclick="startBot()">
+                        <i class="bi bi-play-circle"></i> Start Bot
+                    </button>
+                {{ end }}
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6><i class="bi bi-gear"></i> Bot Settings</h6>
+            </div>
+            <div class="card-body">
+                <p class="small"><strong>Check Interval:</strong> 1 minute</p>
+                <p class="small"><strong>Trading Hours:</strong> 9:00 - 15:00</p>
+                <p class="small"><strong>Active Strategies:</strong> Auto</p>
+                <p class="small"><strong>Risk Per Trade:</strong> 2%</p>
+                <p class="small"><strong>Commission:</strong> 0.15%</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5><i class="bi bi-lightning"></i> Recent Signals</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Stock</th>
+                                <th>Type</th>
+                                <th>Price</th>
+                                <th>Confidence</th>
+                                <th>Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .signals }}
+                            <tr>
+                                <td>{{ .CreatedAt.Format "15:04:05" }}</td>
+                                <td><strong>{{ .Stock.Symbol }}</strong></td>
+                                <td>
+                                    {{ if eq .Type "BUY" }}
+                                        <span class="badge bg-success">{{ .Type }}</span>
+                                    {{ else if eq .Type "SELL" }}
+                                        <span class="badge bg-danger">{{ .Type }}</span>
+                                    {{ else }}
+                                        <span class="badge bg-secondary">{{ .Type }}</span>
+                                    {{ end }}
+                                </td>
+                                <td>{{ printf "%.2f" .Price }}</td>
+                                <td>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar" role="progressbar" style="width: {{ .Confidence }}%">
+                                            {{ printf "%.0f" .Confidence }}%
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="small">{{ .Reason }}</td>
+                            </tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-cash-coin"></i> Recent Trades</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Stock</th>
+                                <th>Type</th>
+                                <th>Quantity</th>
+                                <th>Price</th>
+                                <th>Total</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .trades }}
+                            <tr>
+                                <td>{{ .CreatedAt.Format "2006-01-02 15:04" }}</td>
+                                <td><strong>{{ .Stock.Symbol }}</strong></td>
+                                <td>
+                                    {{ if eq .Type "BUY" }}
+                                        <span class="badge bg-success">{{ .Type }}</span>
+                                    {{ else }}
+                                        <span class="badge bg-danger">{{ .Type }}</span>
+                                    {{ end }}
+                                </td>
+                                <td>{{ .Quantity }}</td>
+                                <td>{{ printf "%.2f" .Price }}</td>
+                                <td>{{ printf "%.0f" .TotalAmount }}</td>
+                                <td>
+                                    {{ if eq .Status "executed" }}
+                                        <span class="badge bg-success">{{ .Status }}</span>
+                                    {{ else if eq .Status "pending" }}
+                                        <span class="badge bg-warning">{{ .Status }}</span>
+                                    {{ else }}
+                                        <span class="badge bg-secondary">{{ .Status }}</span>
+                                    {{ end }}
+                                </td>
+                            </tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+function startBot() {
+    if (!confirm('Start the trading bot? It will execute trades automatically.')) return;
+
+    $.post('/admin/actions/start-bot', function(data) {
+        alert(data.message);
+        location.reload();
+    }).fail(function(xhr) {
+        alert('Error: ' + xhr.responseJSON.error);
+    });
+}
+
+function stopBot() {
+    if (!confirm('Stop the trading bot?')) return;
+
+    $.post('/admin/actions/stop-bot', function(data) {
+        alert(data.message);
+        location.reload();
+    }).fail(function(xhr) {
+        alert('Error: ' + xhr.responseJSON.error);
+    });
+}
+
+// Auto-refresh every 30 seconds if bot is running
+{{ if .botRunning }}
+setInterval(function() {
+    location.reload();
+}, 30000);
+{{ end }}
+</script>
+{{ end }}

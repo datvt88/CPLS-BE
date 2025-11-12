@@ -126,10 +126,10 @@ func (be *BacktestEngine) RunBacktest(config *BacktestConfig) (*models.Backtest,
 
 			// Execute trades based on signals
 			if signal == "BUY" && state.Cash.GreaterThan(decimal.Zero) {
-				be.executeBuy(backtest.ID, stock, &price, state, config)
+				be.executeBuy(backtest.ID, &stock, &price, state, config)
 			} else if signal == "SELL" {
 				if _, hasPosition := state.Positions[stock.ID]; hasPosition {
-					be.executeSell(backtest.ID, stock, &price, state, config)
+					be.executeSell(backtest.ID, &stock, &price, state, config)
 				}
 			}
 		}
