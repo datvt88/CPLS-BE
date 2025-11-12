@@ -1,0 +1,50 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build artifacts
+/bin/
+/dist/
+/build/
+main
+go_backend_project
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Test files
+*.db
+*.sqlite
+
+# Analysis files
+ANALYSIS_*.md
+EXECUTIVE_SUMMARY.md
+FILE_REFERENCE.md
+IMPLEMENTATION_STATUS.md
+
+# Git
+.git/
+.gitignore
