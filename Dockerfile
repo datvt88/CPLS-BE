@@ -8,6 +8,9 @@ WORKDIR /app
 # Copy go mod files
 COPY go.mod go.sum ./
 
+# Set GOTOOLCHAIN to avoid version conflicts
+ENV GOTOOLCHAIN=local
+
 # Download dependencies
 RUN go mod download
 
