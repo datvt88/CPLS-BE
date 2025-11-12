@@ -1,0 +1,128 @@
+{{ define "content" }}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5><i class="bi bi-graph-up"></i> Stocks Management</h5>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#fetchDataModal">
+            <i class="bi bi-cloud-download"></i> Fetch Historical Data
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Name</th>
+                        <th>Exchange</th>
+                        <th>Industry</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .stocks }}
+                    <tr>
+                        <td><strong>{{ .Symbol }}</strong></td>
+                        <td>{{ .Name }}</td>
+                        <td><span class="badge bg-info">{{ .Exchange }}</span></td>
+                        <td>{{ .Industry }}</td>
+                        <td>
+                            {{ if eq .Status "active" }}
+                                <span class="badge bg-success">Active</span>
+                            {{ else }}
+                                <span class="badge bg-secondary">{{ .Status }}</span>
+                            {{ end }}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="viewStock('{{ .Symbol }}')">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                            <button class="btn btn-sm btn-success" onclick="fetchData('{{ .Symbol }}')">
+                                <i class="bi bi-download"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+
+        <nav>
+            <ul class="pagination">
+                <li class="page-item {{ if eq .page 1 }}disabled{{ end }}">
+                    <a class="page-link" href="?page={{ sub .page 1 }}">Previous</a>
+                </li>
+                <li class="page-item active">
+                    <span class="page-link">{{ .page }}</span>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ add .page 1 }}">Next</a>
+                </li>
+            </ul>
+        </nav>
+    </div>
+</div>
+
+<!-- Fetch Data Modal -->
+<div class="modal fade" id="fetchDataModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Fetch Historical Data</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="fetchDataForm">
+                    <div class="mb-3">
+                        <label class="form-label">Stock Symbol</label>
+                        <input type="text" class="form-control" name="symbol" placeholder="VNM" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Start Date</label>
+                        <input type="date" class="form-control" name="start_date" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">End Date</label>
+                        <input type="date" class="form-control" name="end_date" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="submitFetchData()">Fetch Data</button>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+function viewStock(symbol) {
+    window.open('/api/v1/stocks/' + symbol, '_blank');
+}
+
+function fetchData(symbol) {
+    $('#fetchDataModal').modal('show');
+    $('input[name=symbol]').val(symbol);
+
+    // Set default dates (last 6 months)
+    var endDate = new Date().toISOString().split('T')[0];
+    var startDate = new Date(new Date().setMonth(new Date().getMonth() - 6)).toISOString().split('T')[0];
+
+    $('input[name=end_date]').val(endDate);
+    $('input[name=start_date]').val(startDate);
+}
+
+function submitFetchData() {
+    var formData = $('#fetchDataForm').serialize();
+
+    $.post('/admin/actions/fetch-data', formData, function(data) {
+        alert(data.message);
+        $('#fetchDataModal').modal('hide');
+    }).fail(function(xhr) {
+        alert('Error: ' + xhr.responseJSON.error);
+    });
+}
+</script>
+{{ end }}

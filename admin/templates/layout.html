@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPLS Admin - Vietnamese Stock Trading System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: #2c3e50;
+        }
+        .sidebar a {
+            color: #ecf0f1;
+            text-decoration: none;
+            padding: 15px;
+            display: block;
+            transition: all 0.3s;
+        }
+        .sidebar a:hover {
+            background: #34495e;
+            padding-left: 25px;
+        }
+        .sidebar a.active {
+            background: #3498db;
+        }
+        .stat-card {
+            border-left: 4px solid #3498db;
+        }
+        .navbar-brand {
+            font-weight: bold;
+            color: #2c3e50 !important;
+        }
+        .btn-bot-start {
+            background: #27ae60;
+            color: white;
+        }
+        .btn-bot-stop {
+            background: #e74c3c;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar px-0">
+                <div class="text-center py-4">
+                    <h4 class="text-white">CPLS Admin</h4>
+                    <p class="text-muted small">Stock Trading System</p>
+                </div>
+                <nav>
+                    <a href="/admin" class="{{ if eq .page "dashboard" }}active{{ end }}">
+                        <i class="bi bi-speedometer2"></i> Dashboard
+                    </a>
+                    <a href="/admin/stocks" class="{{ if eq .page "stocks" }}active{{ end }}">
+                        <i class="bi bi-graph-up"></i> Stocks
+                    </a>
+                    <a href="/admin/strategies" class="{{ if eq .page "strategies" }}active{{ end }}">
+                        <i class="bi bi-lightbulb"></i> Strategies
+                    </a>
+                    <a href="/admin/backtests" class="{{ if eq .page "backtests" }}active{{ end }}">
+                        <i class="bi bi-clock-history"></i> Backtests
+                    </a>
+                    <a href="/admin/trading-bot" class="{{ if eq .page "bot" }}active{{ end }}">
+                        <i class="bi bi-robot"></i> Trading Bot
+                    </a>
+                    <hr class="text-white">
+                    <a href="/api/v1/stocks" target="_blank">
+                        <i class="bi bi-code"></i> API Docs
+                    </a>
+                    <a href="/health" target="_blank">
+                        <i class="bi bi-heart-pulse"></i> Health Check
+                    </a>
+                </nav>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-10">
+                <nav class="navbar navbar-light bg-light mb-4">
+                    <div class="container-fluid">
+                        <span class="navbar-brand mb-0 h1">{{ .title }}</span>
+                        <div>
+                            <span class="badge bg-success" id="botStatus">
+                                {{ if .botRunning }}Bot Running{{ else }}Bot Stopped{{ end }}
+                            </span>
+                        </div>
+                    </div>
+                </nav>
+
+                <div class="container-fluid">
+                    {{ template "content" . }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    {{ template "scripts" . }}
+</body>
+</html>

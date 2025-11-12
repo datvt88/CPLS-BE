@@ -1,0 +1,162 @@
+{{ define "content" }}
+<div class="row">
+    <div class="col-md-3">
+        <div class="card stat-card">
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">Total Stocks</h6>
+                <h2 class="card-title">{{ .stockCount }}</h2>
+                <p class="card-text"><i class="bi bi-graph-up"></i> HOSE, HNX, UPCOM</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card" style="border-left-color: #9b59b6;">
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">Strategies</h6>
+                <h2 class="card-title">{{ .strategyCount }}</h2>
+                <p class="card-text"><i class="bi bi-lightbulb"></i> Trading strategies</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card" style="border-left-color: #e67e22;">
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">Backtests</h6>
+                <h2 class="card-title">{{ .backtestCount }}</h2>
+                <p class="card-text"><i class="bi bi-clock-history"></i> Completed tests</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card" style="border-left-color: #27ae60;">
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">Total Trades</h6>
+                <h2 class="card-title">{{ .tradeCount }}</h2>
+                <p class="card-text"><i class="bi bi-cash-coin"></i> Executed trades</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5><i class="bi bi-cloud-download"></i> Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-primary btn-block mb-2" onclick="initializeData()">
+                    <i class="bi bi-database-add"></i> Initialize Stock Data
+                </button>
+                <p class="text-muted small">Fetch sample stock list and historical data for top stocks</p>
+
+                <button class="btn btn-success btn-block mb-2" onclick="location.href='/admin/strategies'">
+                    <i class="bi bi-plus-circle"></i> Create Strategy
+                </button>
+                <p class="text-muted small">Create a new trading strategy</p>
+
+                <button class="btn btn-warning btn-block" onclick="location.href='/admin/backtests'">
+                    <i class="bi bi-play-circle"></i> Run Backtest
+                </button>
+                <p class="text-muted small">Test your strategy with historical data</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5><i class="bi bi-robot"></i> Trading Bot Status</h5>
+            </div>
+            <div class="card-body">
+                <h3>
+                    {{ if .botRunning }}
+                        <span class="badge bg-success">Running</span>
+                    {{ else }}
+                        <span class="badge bg-secondary">Stopped</span>
+                    {{ end }}
+                </h3>
+                <p class="mt-3">The trading bot monitors market conditions and executes trades based on active strategies.</p>
+
+                {{ if .botRunning }}
+                    <button class="btn btn-bot-stop btn-block" onclick="stopBot()">
+                        <i class="bi bi-stop-circle"></i> Stop Bot
+                    </button>
+                {{ else }}
+                    <button class="btn btn-bot-start btn-block" onclick="startBot()">
+                        <i class="bi bi-play-circle"></i> Start Bot
+                    </button>
+                {{ end }}
+
+                <hr>
+                <a href="/admin/trading-bot" class="btn btn-outline-primary btn-block">
+                    <i class="bi bi-eye"></i> View Bot Details
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-info-circle"></i> System Information</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">API Version</dt>
+                    <dd class="col-sm-9">v1.0</dd>
+
+                    <dt class="col-sm-3">API Endpoint</dt>
+                    <dd class="col-sm-9"><code>/api/v1/</code></dd>
+
+                    <dt class="col-sm-3">Database</dt>
+                    <dd class="col-sm-9">PostgreSQL / Supabase</dd>
+
+                    <dt class="col-sm-3">Supported Exchanges</dt>
+                    <dd class="col-sm-9">HOSE, HNX, UPCOM</dd>
+
+                    <dt class="col-sm-3">Documentation</dt>
+                    <dd class="col-sm-9"><a href="/health" target="_blank">API Health</a> | <a href="https://github.com" target="_blank">GitHub</a></dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+function initializeData() {
+    if (!confirm('Initialize stock data? This will fetch sample stocks and historical data.')) return;
+
+    $.post('/admin/actions/initialize-data', function(data) {
+        alert(data.message);
+        location.reload();
+    }).fail(function(xhr) {
+        alert('Error: ' + xhr.responseJSON.error);
+    });
+}
+
+function startBot() {
+    $.post('/admin/actions/start-bot', function(data) {
+        alert(data.message);
+        location.reload();
+    }).fail(function(xhr) {
+        alert('Error: ' + xhr.responseJSON.error);
+    });
+}
+
+function stopBot() {
+    if (!confirm('Stop trading bot?')) return;
+
+    $.post('/admin/actions/stop-bot', function(data) {
+        alert(data.message);
+        location.reload();
+    }).fail(function(xhr) {
+        alert('Error: ' + xhr.responseJSON.error);
+    });
+}
+</script>
+{{ end }}

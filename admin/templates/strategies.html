@@ -1,0 +1,163 @@
+{{ define "content" }}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5><i class="bi bi-lightbulb"></i> Trading Strategies</h5>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createStrategyModal">
+            <i class="bi bi-plus-circle"></i> Create Strategy
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {{ range .strategies }}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between">
+                        <strong>{{ .Name }}</strong>
+                        {{ if .IsActive }}
+                            <span class="badge bg-success">Active</span>
+                        {{ else }}
+                            <span class="badge bg-secondary">Inactive</span>
+                        {{ end }}
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">{{ .Description }}</p>
+                        <p><strong>Type:</strong> <span class="badge bg-info">{{ .Type }}</span></p>
+                        <p><strong>Parameters:</strong></p>
+                        <pre class="bg-light p-2" style="font-size: 12px;">{{ .Parameters }}</pre>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button class="btn btn-primary" onclick="runBacktest({{ .ID }})">
+                                <i class="bi bi-play"></i> Backtest
+                            </button>
+                            <button class="btn btn-info" onclick="viewStrategy({{ .ID }})">
+                                <i class="bi bi-eye"></i> View
+                            </button>
+                            <button class="btn btn-danger" onclick="deleteStrategy({{ .ID }})">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+</div>
+
+<!-- Create Strategy Modal -->
+<div class="modal fade" id="createStrategyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create Trading Strategy</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createStrategyForm">
+                    <div class="mb-3">
+                        <label class="form-label">Strategy Name</label>
+                        <input type="text" class="form-control" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" name="description" rows="2"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Strategy Type</label>
+                        <select class="form-control" name="type" id="strategyType" onchange="updateParameters()">
+                            <option value="sma_crossover">SMA Crossover</option>
+                            <option value="rsi_strategy">RSI Strategy</option>
+                            <option value="macd_strategy">MACD Strategy</option>
+                            <option value="breakout_strategy">Breakout Strategy</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Parameters (JSON)</label>
+                        <textarea class="form-control" name="parameters" id="parameters" rows="4">{
+  "short_period": 20,
+  "long_period": 50
+}</textarea>
+                        <small class="text-muted">Enter strategy parameters in JSON format</small>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="is_active" id="isActive" checked>
+                        <label class="form-check-label" for="isActive">
+                            Active (Bot will use this strategy)
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="submitCreateStrategy()">Create Strategy</button>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+function updateParameters() {
+    var type = $('#strategyType').val();
+    var params = {};
+
+    switch(type) {
+        case 'sma_crossover':
+            params = {"short_period": 20, "long_period": 50};
+            break;
+        case 'rsi_strategy':
+            params = {"oversold": 30, "overbought": 70};
+            break;
+        case 'macd_strategy':
+            params = {"fast": 12, "slow": 26, "signal": 9};
+            break;
+        case 'breakout_strategy':
+            params = {"period": 20, "threshold": 0.02};
+            break;
+    }
+
+    $('#parameters').val(JSON.stringify(params, null, 2));
+}
+
+function submitCreateStrategy() {
+    var formData = {
+        name: $('input[name=name]').val(),
+        description: $('textarea[name=description]').val(),
+        type: $('select[name=type]').val(),
+        parameters: $('textarea[name=parameters]').val(),
+        is_active: $('#isActive').is(':checked')
+    };
+
+    $.post('/admin/actions/create-strategy', formData, function(data) {
+        alert(data.message);
+        location.reload();
+    }).fail(function(xhr) {
+        alert('Error: ' + xhr.responseJSON.error);
+    });
+}
+
+function runBacktest(strategyId) {
+    location.href = '/admin/backtests?strategy_id=' + strategyId;
+}
+
+function viewStrategy(strategyId) {
+    window.open('/api/v1/strategies/' + strategyId, '_blank');
+}
+
+function deleteStrategy(strategyId) {
+    if (!confirm('Delete this strategy?')) return;
+
+    $.ajax({
+        url: '/api/v1/strategies/' + strategyId,
+        type: 'DELETE',
+        success: function() {
+            alert('Strategy deleted');
+            location.reload();
+        },
+        error: function(xhr) {
+            alert('Error: ' + xhr.responseJSON.error);
+        }
+    });
+}
+</script>
+{{ end }}
