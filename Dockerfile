@@ -18,7 +18,8 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN go build -o main .
+# Use -mod=mod to allow go to update go.mod if needed
+RUN go build -mod=mod -o main .
 
 # Expose port
 EXPOSE 8080
