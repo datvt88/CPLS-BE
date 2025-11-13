@@ -54,7 +54,7 @@ func LoadConfig() (*Config, error) {
 // InitDB initializes database connection
 func InitDB() (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Asia/Ho_Chi_Minh",
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=require TimeZone=Asia/Ho_Chi_Minh",
 		AppConfig.DBHost,
 		AppConfig.DBUser,
 		AppConfig.DBPassword,
