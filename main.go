@@ -44,6 +44,20 @@ func main() {
 		})
 	})
 
+	// Root path - API info endpoint (available even without database)
+	router.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status":  "ok",
+			"message": "CPLS Backend API is running",
+			"version": "2.0.0",
+			"endpoints": gin.H{
+				"health": "/health",
+				"api":    "/api/v1",
+				"admin":  "/admin",
+			},
+		})
+	})
+
 	// Initialize database
 	db, err := config.InitDB()
 	if err != nil {
