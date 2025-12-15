@@ -1,6 +1,6 @@
 # CPLS Backend - Vietnamese Stock Trading System
 
-Hệ thống backend hoàn chỉnh cho giao dịch chứng khoán Việt Nam với khả năng backtesting và bot giao dịch tự động. Tích hợp Supabase cho quản lý user và hỗ trợ triển khai trên Vercel.
+Hệ thống backend hoàn chỉnh cho giao dịch chứng khoán Việt Nam với khả năng backtesting và bot giao dịch tự động. Tích hợp Supabase cho quản lý user và hỗ trợ triển khai trên Google Cloud Run.
 
 ## ✨ Tính năng chính
 
@@ -55,7 +55,6 @@ Hệ thống backend hoàn chỉnh cho giao dịch chứng khoán Việt Nam v�
 
 ```
 CPLS-BE/
-├── api/              # Vercel serverless handler
 ├── config/           # Database & environment config
 ├── models/           # Database models
 │   ├── stock.go      # Stock, StockPrice, TechnicalIndicator
@@ -73,8 +72,8 @@ CPLS-BE/
 ├── routes/           # API routes
 ├── scheduler/        # Scheduled jobs
 ├── admin/            # Admin UI
-├── vercel.json       # Vercel deployment config
-├── Dockerfile        # Docker config
+├── Dockerfile        # Docker config for Cloud Run
+├── cloudbuild.yaml   # Google Cloud Build config
 └── main.go           # Entry point
 ```
 
@@ -261,19 +260,6 @@ curl -X POST http://localhost:8080/api/v1/backtests \
 
 ## 🚢 Deployment
 
-### Vercel Deployment
-
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy
-vercel
-
-# For production
-vercel --prod
-```
-
 ### Docker Deployment
 
 ```bash
@@ -287,6 +273,13 @@ docker run -p 8080:8080 --env-file .env cpls-backend
 ### Google Cloud Run
 
 ```bash
+# Quick deploy with simple script
+./deploy-simple.sh
+
+# Or full deploy with checks
+./deploy.sh
+
+# Or manually with gcloud
 gcloud builds submit --config cloudbuild.yaml .
 ```
 

@@ -1,4 +1,5 @@
-FROM golang:1.23-alpine
+# Build stage
+FROM golang:1.23-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git
@@ -19,7 +20,21 @@ COPY . .
 
 # Build the application
 # Use -mod=mod to allow go to update go.mod if needed
-RUN go build -mod=mod -o main .
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o main .
+
+# Final stage
+FROM alpine:latest
+
+# Install ca-certificates for HTTPS connections
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/main .
+
+# Copy admin templates
+COPY --from=builder /app/admin/templates ./admin/templates
 
 # Expose port
 EXPOSE 8080
