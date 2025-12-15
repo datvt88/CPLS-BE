@@ -10,22 +10,22 @@
       }
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/main.go"
+      "source": "/api/(.*)",
+      "destination": "/main.go"
     },
     {
-      "src": "/health",
-      "dest": "/main.go"
+      "source": "/health",
+      "destination": "/main.go"
     },
     {
-      "src": "/admin/(.*)",
-      "dest": "/main.go"
+      "source": "/admin/(.*)",
+      "destination": "/main.go"
     },
     {
-      "src": "/(.*)",
-      "dest": "/main.go"
+      "source": "/(.*)",
+      "destination": "/main.go"
     }
   ],
   "env": {
