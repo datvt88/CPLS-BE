@@ -17,6 +17,7 @@ go_backend_project
 # Environment files
 .env
 .env.local
+.env.production
 
 # IDE
 .idea/
@@ -48,3 +49,7 @@ IMPLEMENTATION_STATUS.md
 # Git
 .git/
 .gitignore
+
+# Documentation
+README.md
+*.md
