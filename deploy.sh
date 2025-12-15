@@ -110,19 +110,12 @@ if [ ! -f "go.mod" ] || [ ! -f "Dockerfile" ]; then
 fi
 print_success "In correct directory"
 
-# Check branch
+# Check branch (informational only)
 CURRENT_BRANCH=$(git branch --show-current)
-if [ "$CURRENT_BRANCH" != "claude/analyze-optimize-code-011CV3EkqVvhUeTi6Z8Ap2gn" ]; then
-    print_warning "Not on deployment branch!"
-    echo "Current branch: $CURRENT_BRANCH"
-    echo "Expected: claude/analyze-optimize-code-011CV3EkqVvhUeTi6Z8Ap2gn"
-    read -p "Continue anyway? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+if [ -n "$CURRENT_BRANCH" ]; then
+    print_success "On branch: $CURRENT_BRANCH"
 else
-    print_success "On correct branch: $CURRENT_BRANCH"
+    print_warning "Not on any branch (detached HEAD)"
 fi
 
 # Verify go.mod format

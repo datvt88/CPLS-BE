@@ -185,14 +185,10 @@ else
     check_error "cloudbuild.yaml not found"
 fi
 
-# Check branch
+# Check branch (informational only)
 CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
 if [ -n "$CURRENT_BRANCH" ]; then
-    if [ "$CURRENT_BRANCH" == "claude/analyze-optimize-code-011CV3EkqVvhUeTi6Z8Ap2gn" ]; then
-        check_ok "On correct branch: $CURRENT_BRANCH"
-    else
-        check_warning "On branch: $CURRENT_BRANCH (expected: claude/analyze-optimize-code-011CV3EkqVvhUeTi6Z8Ap2gn)"
-    fi
+    check_ok "On branch: $CURRENT_BRANCH"
 fi
 
 ###############################################################################
