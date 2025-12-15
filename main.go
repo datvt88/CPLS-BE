@@ -51,11 +51,7 @@ func main() {
 		log.Println("Server will start but database features will be unavailable")
 		
 		// Start server without database features
-		port := cfg.Port
-		log.Printf("Server starting on port %s (database unavailable)", port)
-		if err := router.Run(fmt.Sprintf(":%s", port)); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
-		}
+		startServer(router, cfg.Port)
 		return
 	}
 
@@ -96,7 +92,11 @@ func main() {
 	}()
 
 	// Start server
-	port := cfg.Port
+	startServer(router, cfg.Port)
+}
+
+// startServer starts the HTTP server on the given port
+func startServer(router *gin.Engine, port string) {
 	log.Printf("Server starting on port %s", port)
 	log.Printf("API documentation available at http://localhost:%s/health", port)
 
