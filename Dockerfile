@@ -33,7 +33,7 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/main .
 
-# Copy admin templates
+# Copy admin templates (required for admin UI)
 COPY --from=builder /app/admin/templates ./admin/templates
 
 # Expose port
