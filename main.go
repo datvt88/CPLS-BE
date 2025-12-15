@@ -24,10 +24,35 @@ func main() {
 
 	log.Printf("Starting CPLS Backend API in %s mode...", cfg.Environment)
 
+	// Set Gin mode
+	if cfg.Environment == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	// Initialize Gin router
+	router := gin.Default()
+
+	// CORS middleware
+	router.Use(corsMiddleware())
+
+	// Health check endpoint (available even without database)
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status":  "ok",
+			"message": "CPLS Backend API is running",
+			"version": "2.0.0",
+		})
+	})
+
 	// Initialize database
 	db, err := config.InitDB()
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Printf("Warning: Failed to connect to database: %v", err)
+		log.Println("Server will start but database features will be unavailable")
+		
+		// Start server without database features
+		startServer(router, cfg.Port)
+		return
 	}
 
 	log.Println("Database connected successfully")
@@ -48,17 +73,6 @@ func main() {
 	}
 	log.Println("Migrations completed successfully")
 
-	// Set Gin mode
-	if cfg.Environment == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
-	// Initialize Gin router
-	router := gin.Default()
-
-	// CORS middleware
-	router.Use(corsMiddleware())
-
 	// Setup routes
 	routes.SetupRoutes(router, db)
 
@@ -78,7 +92,11 @@ func main() {
 	}()
 
 	// Start server
-	port := cfg.Port
+	startServer(router, cfg.Port)
+}
+
+// startServer starts the HTTP server on the given port
+func startServer(router *gin.Engine, port string) {
 	log.Printf("Server starting on port %s", port)
 	log.Printf("API documentation available at http://localhost:%s/health", port)
 
