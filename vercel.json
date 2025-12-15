@@ -3,29 +3,26 @@
   "name": "cpls-backend",
   "builds": [
     {
-      "src": "main.go",
-      "use": "@vercel/go",
-      "config": {
-        "zeroConfig": true
-      }
+      "src": "api/index.go",
+      "use": "@vercel/go"
     }
   ],
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/main.go"
+      "destination": "/api/index.go"
     },
     {
       "source": "/health",
-      "destination": "/main.go"
+      "destination": "/api/index.go"
     },
     {
       "source": "/admin/(.*)",
-      "destination": "/main.go"
+      "destination": "/api/index.go"
     },
     {
       "source": "/(.*)",
-      "destination": "/main.go"
+      "destination": "/api/index.go"
     }
   ],
   "env": {
