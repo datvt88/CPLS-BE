@@ -65,6 +65,27 @@ type PaymentHistory struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+// Currency constants
+const (
+	CurrencyVND = "VND"
+	CurrencyUSD = "USD"
+)
+
+// ValidCurrencies returns valid currency codes
+func ValidCurrencies() []string {
+	return []string{CurrencyVND, CurrencyUSD}
+}
+
+// IsValidCurrency checks if the currency is valid
+func IsValidCurrency(currency string) bool {
+	for _, valid := range ValidCurrencies() {
+		if currency == valid {
+			return true
+		}
+	}
+	return false
+}
+
 // MigrateSubscriptionModels runs database migrations for subscription-related models
 func MigrateSubscriptionModels(db *gorm.DB) error {
 	return db.AutoMigrate(

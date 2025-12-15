@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"net/http"
+	"strconv"
 
 	"go_backend_project/services/screener"
 	"github.com/gin-gonic/gin"
@@ -81,7 +82,14 @@ func (sc *ScreenerController) RunPreset(c *gin.Context) {
 
 	// Apply pagination from query params
 	if page := c.Query("page"); page != "" {
-		// Parse and set page
+		if pageNum, err := strconv.Atoi(page); err == nil && pageNum > 0 {
+			selectedFilter.Page = pageNum
+		}
+	}
+	if limit := c.Query("limit"); limit != "" {
+		if limitNum, err := strconv.Atoi(limit); err == nil && limitNum > 0 {
+			selectedFilter.Limit = limitNum
+		}
 	}
 	if selectedFilter.Page <= 0 {
 		selectedFilter.Page = 1

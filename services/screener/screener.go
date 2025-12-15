@@ -2,6 +2,7 @@ package screener
 
 import (
 	"fmt"
+	"sort"
 
 	"go_backend_project/models"
 	"github.com/shopspring/decimal"
@@ -418,44 +419,27 @@ func (ss *StockScreener) getAverageVolume(stockID uint, days int) int64 {
 	return int64(avgVolume)
 }
 
-// sortResults sorts screening results
+// sortResults sorts screening results using Go's built-in sort
 func (ss *StockScreener) sortResults(results []ScreenerResult, sortBy, sortOrder string) {
-	// Simple bubble sort for now - in production, use a more efficient algorithm
-	n := len(results)
-	for i := 0; i < n-1; i++ {
-		for j := 0; j < n-i-1; j++ {
-			shouldSwap := false
+	sort.Slice(results, func(i, j int) bool {
+		var compare bool
 
-			switch sortBy {
-			case "volume":
-				if sortOrder == "desc" {
-					shouldSwap = results[j].LatestPrice.Volume < results[j+1].LatestPrice.Volume
-				} else {
-					shouldSwap = results[j].LatestPrice.Volume > results[j+1].LatestPrice.Volume
-				}
-			case "change_percent":
-				if sortOrder == "desc" {
-					shouldSwap = results[j].LatestPrice.ChangePercent.LessThan(results[j+1].LatestPrice.ChangePercent)
-				} else {
-					shouldSwap = results[j].LatestPrice.ChangePercent.GreaterThan(results[j+1].LatestPrice.ChangePercent)
-				}
-			case "price":
-				if sortOrder == "desc" {
-					shouldSwap = results[j].LatestPrice.Close.LessThan(results[j+1].LatestPrice.Close)
-				} else {
-					shouldSwap = results[j].LatestPrice.Close.GreaterThan(results[j+1].LatestPrice.Close)
-				}
-			case "market_cap":
-				if sortOrder == "desc" {
-					shouldSwap = results[j].Stock.MarketCap.LessThan(results[j+1].Stock.MarketCap)
-				} else {
-					shouldSwap = results[j].Stock.MarketCap.GreaterThan(results[j+1].Stock.MarketCap)
-				}
-			}
-
-			if shouldSwap {
-				results[j], results[j+1] = results[j+1], results[j]
-			}
+		switch sortBy {
+		case "volume":
+			compare = results[i].LatestPrice.Volume > results[j].LatestPrice.Volume
+		case "change_percent":
+			compare = results[i].LatestPrice.ChangePercent.GreaterThan(results[j].LatestPrice.ChangePercent)
+		case "price":
+			compare = results[i].LatestPrice.Close.GreaterThan(results[j].LatestPrice.Close)
+		case "market_cap":
+			compare = results[i].Stock.MarketCap.GreaterThan(results[j].Stock.MarketCap)
+		default:
+			compare = results[i].LatestPrice.Volume > results[j].LatestPrice.Volume
 		}
-	}
+
+		if sortOrder == "asc" {
+			return !compare
+		}
+		return compare
+	})
 }

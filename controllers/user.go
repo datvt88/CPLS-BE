@@ -289,6 +289,15 @@ func (uc *UserController) CreateUserAlert(c *gin.Context) {
 		return
 	}
 
+	// Validate alert type
+	if !models.IsValidUserAlertType(request.AlertType) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "Invalid alert type",
+			"valid_alert_types": models.ValidUserAlertTypes(),
+		})
+		return
+	}
+
 	alert := models.UserAlert{
 		UserID:      uint(userID),
 		StockID:     request.StockID,

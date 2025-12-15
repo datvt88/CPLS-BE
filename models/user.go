@@ -72,6 +72,56 @@ type UserAlert struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// Alert type constants for watchlist
+const (
+	AlertTypeAbove = "above"
+	AlertTypeBelow = "below"
+	AlertTypeBoth  = "both"
+)
+
+// Alert type constants for user alerts
+const (
+	UserAlertTypePriceAbove    = "price_above"
+	UserAlertTypePriceBelow    = "price_below"
+	UserAlertTypePercentChange = "percent_change"
+	UserAlertTypeVolumeSpike   = "volume_spike"
+)
+
+// ValidWatchlistAlertTypes returns valid alert types for watchlist
+func ValidWatchlistAlertTypes() []string {
+	return []string{AlertTypeAbove, AlertTypeBelow, AlertTypeBoth}
+}
+
+// ValidUserAlertTypes returns valid alert types for user alerts
+func ValidUserAlertTypes() []string {
+	return []string{
+		UserAlertTypePriceAbove,
+		UserAlertTypePriceBelow,
+		UserAlertTypePercentChange,
+		UserAlertTypeVolumeSpike,
+	}
+}
+
+// IsValidWatchlistAlertType checks if the alert type is valid
+func IsValidWatchlistAlertType(alertType string) bool {
+	for _, valid := range ValidWatchlistAlertTypes() {
+		if alertType == valid {
+			return true
+		}
+	}
+	return false
+}
+
+// IsValidUserAlertType checks if the alert type is valid
+func IsValidUserAlertType(alertType string) bool {
+	for _, valid := range ValidUserAlertTypes() {
+		if alertType == valid {
+			return true
+		}
+	}
+	return false
+}
+
 // MigrateUserModels runs database migrations for user-related models
 func MigrateUserModels(db *gorm.DB) error {
 	return db.AutoMigrate(

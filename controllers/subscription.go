@@ -71,11 +71,23 @@ func (sc *SubscriptionController) CreatePlan(c *gin.Context) {
 		return
 	}
 
+	// Validate and set default currency
+	currency := request.Currency
+	if currency == "" {
+		currency = models.CurrencyVND
+	} else if !models.IsValidCurrency(currency) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":            "Invalid currency",
+			"valid_currencies": models.ValidCurrencies(),
+		})
+		return
+	}
+
 	plan := models.SubscriptionPlan{
 		Name:                  request.Name,
 		Description:           request.Description,
 		Price:                 decimal.NewFromFloat(request.Price),
-		Currency:              request.Currency,
+		Currency:              currency,
 		BillingCycle:          request.BillingCycle,
 		Features:              request.Features,
 		MaxWatchlist:          request.MaxWatchlist,
