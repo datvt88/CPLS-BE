@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go_backend_project/models"
+	"go_backend_project/services/analysis"
 	"go_backend_project/services/datafetcher"
 	"github.com/go-co-op/gocron"
 	"gorm.io/gorm"
@@ -12,17 +13,19 @@ import (
 
 // Scheduler manages scheduled jobs
 type Scheduler struct {
-	cron        *gocron.Scheduler
-	db          *gorm.DB
-	dataFetcher *datafetcher.DataFetcher
+	cron              *gocron.Scheduler
+	db                *gorm.DB
+	dataFetcher       *datafetcher.DataFetcher
+	technicalAnalysis *analysis.TechnicalAnalysis
 }
 
 // NewScheduler creates a new scheduler instance
 func NewScheduler(db *gorm.DB) *Scheduler {
 	return &Scheduler{
-		cron:        gocron.NewScheduler(time.UTC),
-		db:          db,
-		dataFetcher: datafetcher.NewDataFetcher(db),
+		cron:              gocron.NewScheduler(time.UTC),
+		db:                db,
+		dataFetcher:       datafetcher.NewDataFetcher(db),
+		technicalAnalysis: analysis.NewTechnicalAnalysis(db),
 	}
 }
 
@@ -51,6 +54,13 @@ func (s *Scheduler) Start() {
 	s.cron.Every(1).Minute().Do(func() {
 		if isMarketOpen() {
 			s.dataFetcher.FetchMarketIndices()
+		}
+	})
+
+	// Check and trigger user alerts every 5 minutes
+	s.cron.Every(5).Minutes().Do(func() {
+		if isMarketOpen() {
+			s.checkUserAlerts()
 		}
 	})
 
@@ -123,9 +133,55 @@ func (s *Scheduler) calculateDailyIndicators() {
 		return
 	}
 
-	// Import analysis package here to avoid circular dependency
-	// In production, this would be properly structured
-	log.Printf("Would calculate indicators for %d stocks", len(stocks))
+	today := time.Now()
+	for _, stock := range stocks {
+		if err := s.technicalAnalysis.CalculateAllIndicators(stock.ID, today); err != nil {
+			log.Printf("Error calculating indicators for %s: %v", stock.Symbol, err)
+		}
+	}
+
+	log.Printf("Calculated indicators for %d stocks", len(stocks))
+}
+
+// checkUserAlerts checks and triggers user price alerts
+func (s *Scheduler) checkUserAlerts() {
+	log.Println("Checking user alerts...")
+
+	var alerts []models.UserAlert
+	if err := s.db.Where("is_active = ? AND is_triggered = ?", true, false).
+		Preload("Stock").Find(&alerts).Error; err != nil {
+		log.Printf("Error loading alerts: %v", err)
+		return
+	}
+
+	for _, alert := range alerts {
+		// Get latest price
+		var latestPrice models.StockPrice
+		if err := s.db.Where("stock_id = ?", alert.StockID).Order("date DESC").First(&latestPrice).Error; err != nil {
+			continue
+		}
+
+		shouldTrigger := false
+		switch alert.AlertType {
+		case "price_above":
+			shouldTrigger = latestPrice.Close.GreaterThanOrEqual(alert.TargetValue)
+		case "price_below":
+			shouldTrigger = latestPrice.Close.LessThanOrEqual(alert.TargetValue)
+		case "percent_change":
+			shouldTrigger = latestPrice.ChangePercent.Abs().GreaterThanOrEqual(alert.TargetValue)
+		}
+
+		if shouldTrigger {
+			now := time.Now()
+			s.db.Model(&alert).Updates(map[string]interface{}{
+				"is_triggered": true,
+				"triggered_at": now,
+			})
+
+			// Here you would send email/push notification
+			log.Printf("Alert triggered for user %d, stock %s", alert.UserID, alert.Stock.Symbol)
+		}
+	}
 }
 
 // cleanupOldData removes old data to save storage
@@ -142,6 +198,13 @@ func (s *Scheduler) cleanupOldData() {
 	threeMonthsAgo := time.Now().AddDate(0, -3, 0)
 	if err := s.db.Where("created_at < ?", threeMonthsAgo).Delete(&models.Signal{}).Error; err != nil {
 		log.Printf("Error cleaning up old signals: %v", err)
+	}
+
+	// Delete triggered alerts older than 30 days
+	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
+	if err := s.db.Where("is_triggered = ? AND triggered_at < ?", true, thirtyDaysAgo).
+		Delete(&models.UserAlert{}).Error; err != nil {
+		log.Printf("Error cleaning up old alerts: %v", err)
 	}
 
 	log.Println("Cleanup completed")

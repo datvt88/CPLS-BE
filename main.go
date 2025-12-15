@@ -40,6 +40,12 @@ func main() {
 	if err := models.MigrateTradingModels(db); err != nil {
 		log.Fatalf("Failed to migrate trading models: %v", err)
 	}
+	if err := models.MigrateUserModels(db); err != nil {
+		log.Fatalf("Failed to migrate user models: %v", err)
+	}
+	if err := models.MigrateSubscriptionModels(db); err != nil {
+		log.Fatalf("Failed to migrate subscription models: %v", err)
+	}
 	log.Println("Migrations completed successfully")
 
 	// Set Gin mode
