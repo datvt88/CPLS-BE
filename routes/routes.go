@@ -19,6 +19,9 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// Initialize controllers
 	stockController := controllers.NewStockController(db)
 	tradingController := controllers.NewTradingController(db)
+	userController := controllers.NewUserController(db)
+	subscriptionController := controllers.NewSubscriptionController(db)
+	screenerController := controllers.NewScreenerController(db)
 
 	// Initialize admin controller
 	adminController := admin.NewAdminController(db, tradingBot)
@@ -26,6 +29,40 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// API v1 group
 	api := router.Group("/api/v1")
 	{
+		// User routes
+		users := api.Group("/users")
+		{
+			users.GET("", userController.GetUsers)
+			users.GET("/:id", userController.GetUser)
+			users.POST("", userController.CreateUser)
+			users.PUT("/:id", userController.UpdateUser)
+			users.DELETE("/:id", userController.DeleteUser)
+			users.POST("/:id/login", userController.UpdateLastLogin)
+			users.POST("/sync", userController.SyncFromSupabase)
+
+			// Watchlist
+			users.GET("/:id/watchlist", userController.GetUserWatchlist)
+			users.POST("/:id/watchlist", userController.AddToWatchlist)
+			users.DELETE("/:id/watchlist/:stock_id", userController.RemoveFromWatchlist)
+
+			// Alerts
+			users.GET("/:id/alerts", userController.GetUserAlerts)
+			users.POST("/:id/alerts", userController.CreateUserAlert)
+			users.DELETE("/:id/alerts/:alert_id", userController.DeleteUserAlert)
+		}
+
+		// Subscription routes
+		subscriptions := api.Group("/subscriptions")
+		{
+			subscriptions.GET("/plans", subscriptionController.GetPlans)
+			subscriptions.GET("/plans/:id", subscriptionController.GetPlan)
+			subscriptions.POST("/plans", subscriptionController.CreatePlan)
+			subscriptions.GET("/user/:user_id", subscriptionController.GetUserSubscription)
+			subscriptions.POST("/subscribe", subscriptionController.Subscribe)
+			subscriptions.POST("/cancel", subscriptionController.CancelSubscription)
+			subscriptions.GET("/payments/:user_id", subscriptionController.GetPaymentHistory)
+		}
+
 		// Stock routes
 		stocks := api.Group("/stocks")
 		{
@@ -37,6 +74,21 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 			stocks.GET("/:symbol/indicators", stockController.GetTechnicalIndicators)
 			stocks.POST("/:symbol/indicators/calculate", stockController.CalculateIndicators)
 			stocks.POST("/:symbol/fetch-historical", stockController.FetchHistoricalData)
+		}
+
+		// Stock Screener routes
+		screener := api.Group("/screener")
+		{
+			screener.POST("/screen", screenerController.Screen)
+			screener.GET("/presets", screenerController.GetPresets)
+			screener.GET("/presets/:id", screenerController.RunPreset)
+			screener.GET("/top-gainers", screenerController.GetTopGainers)
+			screener.GET("/top-losers", screenerController.GetTopLosers)
+			screener.GET("/most-active", screenerController.GetMostActive)
+			screener.GET("/oversold", screenerController.GetOversoldStocks)
+			screener.GET("/overbought", screenerController.GetOverboughtStocks)
+			screener.GET("/bullish", screenerController.GetBullishStocks)
+			screener.GET("/volume-spike", screenerController.GetVolumeSpike)
 		}
 
 		// Market routes
@@ -95,6 +147,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 		c.JSON(200, gin.H{
 			"status":  "ok",
 			"message": "CPLS Backend API is running",
+			"version": "2.0.0",
 		})
 	})
 

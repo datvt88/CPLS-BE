@@ -1,0 +1,56 @@
+{
+  "version": 2,
+  "name": "cpls-backend",
+  "builds": [
+    {
+      "src": "main.go",
+      "use": "@vercel/go",
+      "config": {
+        "zeroConfig": true
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/main.go"
+    },
+    {
+      "src": "/health",
+      "dest": "/main.go"
+    },
+    {
+      "src": "/admin/(.*)",
+      "dest": "/main.go"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/main.go"
+    }
+  ],
+  "env": {
+    "PORT": "8080",
+    "ENVIRONMENT": "production",
+    "GIN_MODE": "release"
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization, X-Requested-With"
+        }
+      ]
+    }
+  ],
+  "regions": ["sin1"]
+}
