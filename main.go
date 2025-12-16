@@ -85,7 +85,15 @@ func main() {
 	if err := models.MigrateSubscriptionModels(db); err != nil {
 		log.Fatalf("Failed to migrate subscription models: %v", err)
 	}
+	if err := models.MigrateAdminModels(db); err != nil {
+		log.Fatalf("Failed to migrate admin models: %v", err)
+	}
 	log.Println("Migrations completed successfully")
+
+	// Seed default admin user
+	if err := models.SeedDefaultAdminUser(db); err != nil {
+		log.Printf("Warning: Failed to seed default admin user: %v", err)
+	}
 
 	// Setup routes
 	routes.SetupRoutes(router, db)

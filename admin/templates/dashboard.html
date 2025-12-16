@@ -1,6 +1,6 @@
 {{ define "content" }}
 <div class="row">
-    <div class="col-md-3">
+    <div class="col-md-2">
         <div class="card stat-card">
             <div class="card-body">
                 <h6 class="card-subtitle mb-2 text-muted">Total Stocks</h6>
@@ -9,30 +9,39 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-2">
+        <div class="card stat-card" style="border-left-color: #3498db;">
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">Users</h6>
+                <h2 class="card-title">{{ .userCount }}</h2>
+                <p class="card-text"><i class="bi bi-people"></i> Registered</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
         <div class="card stat-card" style="border-left-color: #9b59b6;">
             <div class="card-body">
                 <h6 class="card-subtitle mb-2 text-muted">Strategies</h6>
                 <h2 class="card-title">{{ .strategyCount }}</h2>
-                <p class="card-text"><i class="bi bi-lightbulb"></i> Trading strategies</p>
+                <p class="card-text"><i class="bi bi-lightbulb"></i> Trading</p>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-2">
         <div class="card stat-card" style="border-left-color: #e67e22;">
             <div class="card-body">
                 <h6 class="card-subtitle mb-2 text-muted">Backtests</h6>
                 <h2 class="card-title">{{ .backtestCount }}</h2>
-                <p class="card-text"><i class="bi bi-clock-history"></i> Completed tests</p>
+                <p class="card-text"><i class="bi bi-clock-history"></i> Completed</p>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-2">
         <div class="card stat-card" style="border-left-color: #27ae60;">
             <div class="card-body">
                 <h6 class="card-subtitle mb-2 text-muted">Total Trades</h6>
                 <h2 class="card-title">{{ .tradeCount }}</h2>
-                <p class="card-text"><i class="bi bi-cash-coin"></i> Executed trades</p>
+                <p class="card-text"><i class="bi bi-cash-coin"></i> Executed</p>
             </div>
         </div>
     </div>

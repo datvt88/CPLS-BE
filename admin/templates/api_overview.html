@@ -1,0 +1,281 @@
+{{ define "content" }}
+<div class="row">
+    <div class="col-md-4">
+        <div class="card stat-card">
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">Total Users</h6>
+                <h2 class="card-title">{{ .userCount }}</h2>
+                <p class="card-text"><i class="bi bi-people"></i> Registered users</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card" style="border-left-color: #9b59b6;">
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">Total Stocks</h6>
+                <h2 class="card-title">{{ .stockCount }}</h2>
+                <p class="card-text"><i class="bi bi-graph-up"></i> Available stocks</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card" style="border-left-color: #27ae60;">
+            <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">Active Subscriptions</h6>
+                <h2 class="card-title">{{ .subscriptionCount }}</h2>
+                <p class="card-text"><i class="bi bi-credit-card"></i> Premium users</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-code-slash"></i> API Endpoints</h5>
+            </div>
+            <div class="card-body">
+                <h6 class="text-primary">User Management</h6>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Endpoint</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/users</code></td>
+                            <td>List all users with pagination</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/users/:id</code></td>
+                            <td>Get user by ID or Supabase ID</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-primary">POST</span></td>
+                            <td><code>/api/v1/users</code></td>
+                            <td>Create new user</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-warning">PUT</span></td>
+                            <td><code>/api/v1/users/:id</code></td>
+                            <td>Update user</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-danger">DELETE</span></td>
+                            <td><code>/api/v1/users/:id</code></td>
+                            <td>Deactivate user</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-primary">POST</span></td>
+                            <td><code>/api/v1/users/sync</code></td>
+                            <td>Sync user from Supabase</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h6 class="text-primary mt-4">Stock Data</h6>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Endpoint</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/stocks</code></td>
+                            <td>List all stocks</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/stocks/search</code></td>
+                            <td>Search stocks</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/stocks/:symbol/prices</code></td>
+                            <td>Get stock prices</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/stocks/:symbol/quote</code></td>
+                            <td>Get realtime quote</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/stocks/:symbol/indicators</code></td>
+                            <td>Get technical indicators</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h6 class="text-primary mt-4">Subscriptions</h6>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Endpoint</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/subscriptions/plans</code></td>
+                            <td>List subscription plans</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/subscriptions/user/:user_id</code></td>
+                            <td>Get user subscription</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-primary">POST</span></td>
+                            <td><code>/api/v1/subscriptions/subscribe</code></td>
+                            <td>Subscribe to plan</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-primary">POST</span></td>
+                            <td><code>/api/v1/subscriptions/cancel</code></td>
+                            <td>Cancel subscription</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h6 class="text-primary mt-4">Stock Screener</h6>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Endpoint</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge bg-primary">POST</span></td>
+                            <td><code>/api/v1/screener/screen</code></td>
+                            <td>Screen stocks with criteria</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/screener/top-gainers</code></td>
+                            <td>Get top gainers</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/screener/top-losers</code></td>
+                            <td>Get top losers</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/screener/oversold</code></td>
+                            <td>Get oversold stocks</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/screener/bullish</code></td>
+                            <td>Get bullish stocks</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h6 class="text-primary mt-4">Trading</h6>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Endpoint</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/strategies</code></td>
+                            <td>List trading strategies</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-primary">POST</span></td>
+                            <td><code>/api/v1/backtests</code></td>
+                            <td>Run backtest</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">GET</span></td>
+                            <td><code>/api/v1/signals</code></td>
+                            <td>Get trading signals</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-primary">POST</span></td>
+                            <td><code>/api/v1/trading/bot/start</code></td>
+                            <td>Start trading bot</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-primary">POST</span></td>
+                            <td><code>/api/v1/trading/bot/stop</code></td>
+                            <td>Stop trading bot</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-link-45deg"></i> Quick Links</h5>
+            </div>
+            <div class="card-body">
+                <a href="/health" target="_blank" class="btn btn-outline-success me-2 mb-2">
+                    <i class="bi bi-heart-pulse"></i> Health Check
+                </a>
+                <a href="/api/v1/stocks" target="_blank" class="btn btn-outline-primary me-2 mb-2">
+                    <i class="bi bi-code"></i> Stocks API
+                </a>
+                <a href="/api/v1/users" target="_blank" class="btn btn-outline-info me-2 mb-2">
+                    <i class="bi bi-people"></i> Users API
+                </a>
+                <a href="/api/v1/subscriptions/plans" target="_blank" class="btn btn-outline-warning me-2 mb-2">
+                    <i class="bi bi-credit-card"></i> Plans API
+                </a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-info-circle"></i> System Info</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">API Version</dt>
+                    <dd class="col-sm-8">v1.0 (2.0.0)</dd>
+                    <dt class="col-sm-4">Base URL</dt>
+                    <dd class="col-sm-8"><code>/api/v1</code></dd>
+                    <dt class="col-sm-4">Database</dt>
+                    <dd class="col-sm-8">PostgreSQL / Supabase</dd>
+                    <dt class="col-sm-4">Authentication</dt>
+                    <dd class="col-sm-8">Supabase Auth</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+// No additional scripts needed for this page
+</script>
+{{ end }}
