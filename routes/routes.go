@@ -142,15 +142,6 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 		}
 	}
 
-	// Health check
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status":  "ok",
-			"message": "CPLS Backend API is running",
-			"version": "2.0.0",
-		})
-	})
-
 	// Admin UI routes
 	adminRoutes := router.Group("/admin")
 	{
@@ -172,8 +163,4 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 		}
 	}
 
-	// Root redirect to admin
-	router.GET("/", func(c *gin.Context) {
-		c.Redirect(302, "/admin")
-	})
 }
