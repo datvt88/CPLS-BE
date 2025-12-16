@@ -14,8 +14,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// Initialize shared trading bot
 	tradingBot := trading.NewTradingBot(db)
 
-	// Load HTML templates
-	router.LoadHTMLGlob("admin/templates/*.html")
+	// Note: HTML templates are loaded in main.go before this function is called
 
 	// Initialize controllers
 	stockController := controllers.NewStockController(db)
