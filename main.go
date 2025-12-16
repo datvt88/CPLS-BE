@@ -47,9 +47,11 @@ func main() {
 	// Health check endpoint (available even without database)
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"status":  "ok",
-			"message": "CPLS Backend API is running",
-			"version": "2.0.0",
+			"status":      "ok",
+			"message":     "CPLS Backend API is running",
+			"version":     "2.0.0",
+			"environment": cfg.Environment,
+			"db_host":     maskString(cfg.DBHost),
 		})
 	})
 
@@ -179,4 +181,12 @@ func setupMaintenanceRoutes(router *gin.Engine) {
 			})
 		})
 	}
+}
+
+// maskString masks a string for logging, showing only first 5 and last 3 characters
+func maskString(s string) string {
+	if len(s) <= 10 {
+		return "***"
+	}
+	return s[:5] + "***" + s[len(s)-3:]
 }

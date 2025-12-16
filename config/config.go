@@ -53,6 +53,14 @@ func LoadConfig() (*Config, error) {
 
 // InitDB initializes database connection
 func InitDB() (*gorm.DB, error) {
+	// Log connection info (masked for security)
+	log.Printf("Connecting to database: host=%s port=%s user=%s dbname=%s",
+		maskHost(AppConfig.DBHost),
+		AppConfig.DBPort,
+		AppConfig.DBUser,
+		AppConfig.DBName,
+	)
+
 	dsn := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s port=%s sslmode=require TimeZone=Asia/Ho_Chi_Minh",
 		AppConfig.DBHost,
@@ -74,11 +82,36 @@ func InitDB() (*gorm.DB, error) {
 	})
 
 	if err != nil {
+		log.Printf("Database connection error: %v", err)
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// Verify connection with ping
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Printf("Failed to get underlying database: %v", err)
+		return nil, fmt.Errorf("failed to get database: %w", err)
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		log.Printf("Database ping failed: %v", err)
+		return nil, fmt.Errorf("database ping failed: %w", err)
+	}
+
+	log.Printf("Database connection verified successfully")
 	DB = db
 	return db, nil
+}
+
+// maskHost masks host for logging, preserving domain structure
+func maskHost(host string) string {
+	if len(host) <= 3 {
+		return "***"
+	}
+	if len(host) <= 15 {
+		return host[:3] + "***"
+	}
+	return host[:8] + "***" + host[len(host)-10:]
 }
 
 // getEnv gets an environment variable or returns a default value
