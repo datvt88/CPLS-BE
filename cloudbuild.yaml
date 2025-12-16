@@ -8,6 +8,20 @@ steps:
     args: ['push', 'gcr.io/$PROJECT_ID/cpls-be']
 
   # Deploy to Cloud Run
+  # NOTE: Environment variables for database connection must be set via:
+  #   1. Cloud Console: Cloud Run -> Service -> Edit -> Variables & Secrets
+  #   2. Secret Manager (recommended for production)
+  #   3. Uncomment and add to args below (for testing only, NOT for production secrets)
+  #
+  # Required environment variables:
+  #   - DB_HOST: Database host (e.g., db.xxxx.supabase.co or /cloudsql/project:region:instance)
+  #   - DB_PORT: Database port (default: 5432)
+  #   - DB_USER: Database user (default: postgres)
+  #   - DB_PASSWORD: Database password
+  #   - DB_NAME: Database name (default: postgres)
+  #   - DB_SSLMODE: SSL mode (default: require, use 'disable' for Cloud SQL Unix sockets)
+  #   - JWT_SECRET: JWT secret key for authentication
+  #   - ENVIRONMENT: Environment mode (production/development)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
     id: Deploy
     entrypoint: gcloud
@@ -23,5 +37,27 @@ steps:
       - '--cpu=1'
       - '--timeout=300'
       - '--port=8080'
+      - '--set-env-vars=ENVIRONMENT=production'
+      # Add database connection via substitution variables or Secret Manager
+      # Option 1: Use substitution variables (set in Cloud Build trigger)
+      # - '--set-env-vars=DB_HOST=${_DB_HOST}'
+      # - '--set-env-vars=DB_PORT=${_DB_PORT}'
+      # - '--set-env-vars=DB_USER=${_DB_USER}'
+      # - '--set-env-vars=DB_PASSWORD=${_DB_PASSWORD}'
+      # - '--set-env-vars=DB_NAME=${_DB_NAME}'
+      # - '--set-env-vars=JWT_SECRET=${_JWT_SECRET}'
+      #
+      # Option 2: Use Secret Manager (recommended)
+      # - '--set-secrets=DB_HOST=cpls-db-host:latest'
+      # - '--set-secrets=DB_PASSWORD=cpls-db-password:latest'
+      # - '--set-secrets=JWT_SECRET=cpls-jwt-secret:latest'
 
 timeout: 900s
+
+# Substitution variables (set these in Cloud Build trigger settings)
+# These are optional placeholders - actual values should be configured in Cloud Build trigger
+substitutions:
+  _DB_HOST: ''
+  _DB_PORT: '5432'
+  _DB_USER: 'postgres'
+  _DB_NAME: 'postgres'

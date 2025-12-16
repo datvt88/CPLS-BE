@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
@@ -18,6 +19,7 @@ type Config struct {
 	DBUser        string
 	DBPassword    string
 	DBName        string
+	DBSSLMode     string
 	JWTSecret     string
 	RedisHost     string
 	RedisPort     string
@@ -41,6 +43,7 @@ func LoadConfig() (*Config, error) {
 		DBUser:        getEnv("DB_USER", "postgres"),
 		DBPassword:    getEnv("DB_PASSWORD", ""),
 		DBName:        getEnv("DB_NAME", "cpls_db"),
+		DBSSLMode:     getEnv("DB_SSLMODE", "require"),
 		JWTSecret:     getEnv("JWT_SECRET", "your-secret-key"),
 		RedisHost:     getEnv("REDIS_HOST", "localhost"),
 		RedisPort:     getEnv("REDIS_PORT", "6379"),
@@ -53,14 +56,46 @@ func LoadConfig() (*Config, error) {
 
 // InitDB initializes database connection
 func InitDB() (*gorm.DB, error) {
-	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%s sslmode=require TimeZone=Asia/Ho_Chi_Minh",
-		AppConfig.DBHost,
-		AppConfig.DBUser,
-		AppConfig.DBPassword,
-		AppConfig.DBName,
-		AppConfig.DBPort,
-	)
+	// Log database configuration (without password)
+	log.Printf("Database config: host=%s, port=%s, user=%s, dbname=%s, sslmode=%s",
+		AppConfig.DBHost, AppConfig.DBPort, AppConfig.DBUser, AppConfig.DBName, AppConfig.DBSSLMode)
+
+	// Check for required configuration in production
+	if AppConfig.Environment == "production" {
+		if AppConfig.DBHost == "" || AppConfig.DBHost == "localhost" {
+			log.Println("Warning: DB_HOST is not configured or using default 'localhost'")
+		}
+		if AppConfig.DBPassword == "" {
+			log.Println("Warning: DB_PASSWORD is not configured")
+		}
+	}
+
+	var dsn string
+
+	// Check if DB_HOST is a Cloud SQL Unix socket path (starts with /)
+	if strings.HasPrefix(AppConfig.DBHost, "/") {
+		// Cloud SQL Unix socket connection (e.g., /cloudsql/project:region:instance)
+		dsn = fmt.Sprintf(
+			"host=%s user=%s password=%s dbname=%s TimeZone=Asia/Ho_Chi_Minh",
+			AppConfig.DBHost,
+			AppConfig.DBUser,
+			AppConfig.DBPassword,
+			AppConfig.DBName,
+		)
+		log.Println("Using Cloud SQL Unix socket connection")
+	} else {
+		// Standard TCP connection (Supabase, Cloud SQL with IP, etc.)
+		dsn = fmt.Sprintf(
+			"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=Asia/Ho_Chi_Minh",
+			AppConfig.DBHost,
+			AppConfig.DBUser,
+			AppConfig.DBPassword,
+			AppConfig.DBName,
+			AppConfig.DBPort,
+			AppConfig.DBSSLMode,
+		)
+		log.Println("Using TCP connection with SSL mode:", AppConfig.DBSSLMode)
+	}
 
 	var logLevel logger.LogLevel
 	if AppConfig.Environment == "production" {
