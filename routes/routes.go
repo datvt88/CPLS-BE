@@ -4,6 +4,7 @@ import (
 	"go_backend_project/admin"
 	"go_backend_project/controllers"
 	"go_backend_project/services/trading"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -23,8 +24,9 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	subscriptionController := controllers.NewSubscriptionController(db)
 	screenerController := controllers.NewScreenerController(db)
 
-	// Initialize admin controller
+	// Initialize admin controllers
 	adminController := admin.NewAdminController(db, tradingBot)
+	authController := admin.NewAuthController(db)
 
 	// API v1 group
 	api := router.Group("/api/v1")
@@ -145,21 +147,37 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// Admin UI routes
 	adminRoutes := router.Group("/admin")
 	{
-		adminRoutes.GET("", adminController.Dashboard)
-		adminRoutes.GET("/stocks", adminController.StocksPage)
-		adminRoutes.GET("/strategies", adminController.StrategiesPage)
-		adminRoutes.GET("/backtests", adminController.BacktestsPage)
-		adminRoutes.GET("/trading-bot", adminController.TradingBotPage)
+		// Public routes (no auth required)
+		adminRoutes.GET("/login", authController.LoginPage)
+		adminRoutes.POST("/login", authController.Login)
 
-		// Admin actions
-		actions := adminRoutes.Group("/actions")
+		// Protected routes (auth required)
+		protected := adminRoutes.Group("")
+		protected.Use(authController.AuthMiddleware())
 		{
-			actions.POST("/fetch-data", adminController.FetchHistoricalDataAction)
-			actions.POST("/create-strategy", adminController.CreateStrategyAction)
-			actions.POST("/run-backtest", adminController.RunBacktestAction)
-			actions.POST("/start-bot", adminController.StartBotAction)
-			actions.POST("/stop-bot", adminController.StopBotAction)
-			actions.POST("/initialize-data", adminController.InitializeStockData)
+			protected.GET("", adminController.Dashboard)
+			protected.GET("/logout", authController.Logout)
+			protected.GET("/stocks", adminController.StocksPage)
+			protected.GET("/strategies", adminController.StrategiesPage)
+			protected.GET("/backtests", adminController.BacktestsPage)
+			protected.GET("/trading-bot", adminController.TradingBotPage)
+			protected.GET("/users", adminController.UsersPage)
+			protected.GET("/admin-users", adminController.AdminUsersPage)
+			protected.GET("/api-overview", adminController.APIOverviewPage)
+
+			// Admin actions
+			actions := protected.Group("/actions")
+			{
+				actions.POST("/fetch-data", adminController.FetchHistoricalDataAction)
+				actions.POST("/create-strategy", adminController.CreateStrategyAction)
+				actions.POST("/run-backtest", adminController.RunBacktestAction)
+				actions.POST("/start-bot", adminController.StartBotAction)
+				actions.POST("/stop-bot", adminController.StopBotAction)
+				actions.POST("/initialize-data", adminController.InitializeStockData)
+				actions.POST("/create-admin-user", adminController.CreateAdminUserAction)
+				actions.POST("/update-user-status", adminController.UpdateUserStatusAction)
+				actions.POST("/update-user-role", adminController.UpdateUserRoleAction)
+			}
 		}
 	}
 

@@ -3,15 +3,16 @@ package admin
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"go_backend_project/models"
-	"go_backend_project/services/datafetcher"
 	"go_backend_project/services/backtesting"
+	"go_backend_project/services/datafetcher"
 	"go_backend_project/services/trading"
+
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
-	"time"
 )
 
 // AdminController handles admin UI requests
@@ -34,6 +35,8 @@ func NewAdminController(db *gorm.DB, tradingBot *trading.TradingBot) *AdminContr
 
 // Dashboard shows admin dashboard
 func (ac *AdminController) Dashboard(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
 	// Get statistics
 	var stockCount int64
 	ac.db.Model(&models.Stock{}).Count(&stockCount)
@@ -47,17 +50,36 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 	var tradeCount int64
 	ac.db.Model(&models.Trade{}).Count(&tradeCount)
 
+	var userCount int64
+	ac.db.Model(&models.User{}).Count(&userCount)
+
 	c.HTML(http.StatusOK, "dashboard.html", gin.H{
 		"stockCount":    stockCount,
 		"strategyCount": strategyCount,
 		"backtestCount": backtestCount,
 		"tradeCount":    tradeCount,
+		"userCount":     userCount,
 		"botRunning":    ac.tradingBot.IsRunning(),
+		"adminUser":     adminUser,
+		"page":          "dashboard",
+		"title":         "Dashboard",
 	})
+}
+
+// getAdminUser retrieves the admin user from context
+func (ac *AdminController) getAdminUser(c *gin.Context) *models.AdminUser {
+	if user, exists := c.Get("admin_user"); exists {
+		if adminUser, ok := user.(models.AdminUser); ok {
+			return &adminUser
+		}
+	}
+	return nil
 }
 
 // StocksPage shows stocks management page
 func (ac *AdminController) StocksPage(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
 	var stocks []models.Stock
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit := 50
@@ -69,34 +91,48 @@ func (ac *AdminController) StocksPage(c *gin.Context) {
 	ac.db.Limit(limit).Offset(offset).Find(&stocks)
 
 	c.HTML(http.StatusOK, "stocks.html", gin.H{
-		"stocks": stocks,
-		"page":   page,
-		"total":  total,
+		"stocks":    stocks,
+		"page":      page,
+		"total":     total,
+		"adminUser": adminUser,
+		"title":     "Stocks",
 	})
 }
 
 // StrategiesPage shows strategies management page
 func (ac *AdminController) StrategiesPage(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
 	var strategies []models.TradingStrategy
 	ac.db.Find(&strategies)
 
 	c.HTML(http.StatusOK, "strategies.html", gin.H{
 		"strategies": strategies,
+		"adminUser":  adminUser,
+		"page":       "strategies",
+		"title":      "Strategies",
 	})
 }
 
 // BacktestsPage shows backtests page
 func (ac *AdminController) BacktestsPage(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
 	var backtests []models.Backtest
 	ac.db.Preload("Strategy").Order("created_at DESC").Limit(50).Find(&backtests)
 
 	c.HTML(http.StatusOK, "backtests.html", gin.H{
 		"backtests": backtests,
+		"adminUser": adminUser,
+		"page":      "backtests",
+		"title":     "Backtests",
 	})
 }
 
 // TradingBotPage shows trading bot control page
 func (ac *AdminController) TradingBotPage(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
 	var signals []models.Signal
 	ac.db.Preload("Stock").Preload("Strategy").
 		Where("is_active = ?", true).
@@ -114,6 +150,9 @@ func (ac *AdminController) TradingBotPage(c *gin.Context) {
 		"botRunning": ac.tradingBot.IsRunning(),
 		"signals":    signals,
 		"trades":     trades,
+		"adminUser":  adminUser,
+		"page":       "bot",
+		"title":      "Trading Bot",
 	})
 }
 
@@ -216,4 +255,174 @@ func (ac *AdminController) InitializeStockData(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Stock data initialization started"})
+}
+
+// UsersPage shows users management page (Supabase users)
+func (ac *AdminController) UsersPage(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
+	var users []models.User
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit := 20
+	offset := (page - 1) * limit
+
+	var total int64
+	ac.db.Model(&models.User{}).Count(&total)
+
+	ac.db.Limit(limit).Offset(offset).Order("created_at DESC").Find(&users)
+
+	c.HTML(http.StatusOK, "users.html", gin.H{
+		"users":     users,
+		"page":      page,
+		"total":     total,
+		"limit":     limit,
+		"adminUser": adminUser,
+		"title":     "Users",
+	})
+}
+
+// AdminUsersPage shows admin users management page
+func (ac *AdminController) AdminUsersPage(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
+	var adminUsers []models.AdminUser
+	ac.db.Order("created_at DESC").Find(&adminUsers)
+
+	c.HTML(http.StatusOK, "admin_users.html", gin.H{
+		"adminUsers":    adminUsers,
+		"currentAdmin":  adminUser,
+		"adminUser":     adminUser,
+		"page":          "admin_users",
+		"title":         "Admin Users",
+	})
+}
+
+// APIOverviewPage shows API management overview page
+func (ac *AdminController) APIOverviewPage(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
+	// Get API statistics
+	var userCount int64
+	ac.db.Model(&models.User{}).Count(&userCount)
+
+	var stockCount int64
+	ac.db.Model(&models.Stock{}).Count(&stockCount)
+
+	var subscriptionCount int64
+	ac.db.Model(&models.Subscription{}).Where("status = ?", "active").Count(&subscriptionCount)
+
+	c.HTML(http.StatusOK, "api_overview.html", gin.H{
+		"userCount":         userCount,
+		"stockCount":        stockCount,
+		"subscriptionCount": subscriptionCount,
+		"adminUser":         adminUser,
+		"page":              "api",
+		"title":             "API Overview",
+	})
+}
+
+// CreateAdminUserAction creates a new admin user
+func (ac *AdminController) CreateAdminUserAction(c *gin.Context) {
+	var request struct {
+		Username string `form:"username" binding:"required"`
+		Password string `form:"password" binding:"required"`
+		Email    string `form:"email"`
+		FullName string `form:"full_name"`
+		Role     string `form:"role"`
+	}
+
+	if err := c.ShouldBind(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if username exists
+	var existing models.AdminUser
+	if err := ac.db.Where("username = ?", request.Username).First(&existing).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
+		return
+	}
+
+	adminUser := &models.AdminUser{
+		Username: request.Username,
+		Email:    request.Email,
+		FullName: request.FullName,
+		Role:     request.Role,
+		IsActive: true,
+	}
+
+	if request.Role == "" {
+		adminUser.Role = "admin"
+	}
+
+	if err := adminUser.SetPassword(request.Password); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		return
+	}
+
+	if err := ac.db.Create(adminUser).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create admin user"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Admin user created successfully", "id": adminUser.ID})
+}
+
+// UpdateUserStatusAction updates user active status
+func (ac *AdminController) UpdateUserStatusAction(c *gin.Context) {
+	userID := c.PostForm("user_id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		return
+	}
+
+	// Validate userID is a valid number
+	if _, err := strconv.ParseUint(userID, 10, 32); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID format"})
+		return
+	}
+
+	isActive := c.PostForm("is_active") == "true"
+
+	if err := ac.db.Model(&models.User{}).Where("id = ?", userID).Update("is_active", isActive).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User status updated"})
+}
+
+// UpdateUserRoleAction updates user role
+func (ac *AdminController) UpdateUserRoleAction(c *gin.Context) {
+	userID := c.PostForm("user_id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		return
+	}
+
+	// Validate userID is a valid number
+	if _, err := strconv.ParseUint(userID, 10, 32); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID format"})
+		return
+	}
+
+	role := c.PostForm("role")
+	if role == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Role is required"})
+		return
+	}
+
+	// Validate role is a valid value
+	validRoles := map[string]bool{"user": true, "premium": true, "admin": true}
+	if !validRoles[role] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role. Must be user, premium, or admin"})
+		return
+	}
+
+	if err := ac.db.Model(&models.User{}).Where("id = ?", userID).Update("role", role).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user role"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User role updated"})
 }

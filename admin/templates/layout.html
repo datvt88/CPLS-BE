@@ -40,6 +40,13 @@
             background: #e74c3c;
             color: white;
         }
+        .sidebar-section {
+            color: #95a5a6;
+            font-size: 0.8rem;
+            padding: 10px 15px 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
     </style>
 </head>
 <body>
@@ -55,6 +62,8 @@
                     <a href="/admin" class="{{ if eq .page "dashboard" }}active{{ end }}">
                         <i class="bi bi-speedometer2"></i> Dashboard
                     </a>
+                    
+                    <div class="sidebar-section">Stock Data</div>
                     <a href="/admin/stocks" class="{{ if eq .page "stocks" }}active{{ end }}">
                         <i class="bi bi-graph-up"></i> Stocks
                     </a>
@@ -66,6 +75,19 @@
                     </a>
                     <a href="/admin/trading-bot" class="{{ if eq .page "bot" }}active{{ end }}">
                         <i class="bi bi-robot"></i> Trading Bot
+                    </a>
+                    
+                    <div class="sidebar-section">User Management</div>
+                    <a href="/admin/users" class="{{ if eq .page "users" }}active{{ end }}">
+                        <i class="bi bi-people"></i> Users (Supabase)
+                    </a>
+                    <a href="/admin/admin-users" class="{{ if eq .page "admin_users" }}active{{ end }}">
+                        <i class="bi bi-shield-lock"></i> Admin Users
+                    </a>
+                    
+                    <div class="sidebar-section">System</div>
+                    <a href="/admin/api-overview" class="{{ if eq .page "api" }}active{{ end }}">
+                        <i class="bi bi-code-slash"></i> API Overview
                     </a>
                     <hr class="text-white">
                     <a href="/api/v1/stocks" target="_blank">
@@ -82,10 +104,22 @@
                 <nav class="navbar navbar-light bg-light mb-4">
                     <div class="container-fluid">
                         <span class="navbar-brand mb-0 h1">{{ .title }}</span>
-                        <div>
-                            <span class="badge bg-success" id="botStatus">
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-success me-3" id="botStatus">
                                 {{ if .botRunning }}Bot Running{{ else }}Bot Stopped{{ end }}
                             </span>
+                            {{ if .adminUser }}
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-person-circle"></i> {{ .adminUser.Username }}
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><span class="dropdown-item-text text-muted">{{ .adminUser.Role }}</span></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item text-danger" href="/admin/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                                </ul>
+                            </div>
+                            {{ end }}
                         </div>
                     </div>
                 </nav>
