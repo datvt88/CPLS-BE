@@ -23,5 +23,71 @@ steps:
       - '--cpu=1'
       - '--timeout=300'
       - '--port=8080'
+      - '--set-env-vars=ENVIRONMENT=production,DB_PORT=${_DB_PORT},DB_NAME=${_DB_NAME},DB_HOST=${_DB_HOST},DB_USER=${_DB_USER},DB_PASSWORD=${_DB_PASSWORD},JWT_SECRET=${_JWT_SECRET},USE_POOLER=${_USE_POOLER}'
+
+substitutions:
+  # === SUPABASE POOLER CONNECTION (Recommended for Cloud Run) ===
+  # Get from: Supabase Dashboard → Settings → Database → Connection Pooling
+  _DB_HOST: 'aws-0-ap-southeast-1.pooler.supabase.com'
+  _DB_PORT: '6543'
+  _DB_USER: 'postgres.lqmocewqozpyzsknocrc'
+  _DB_NAME: 'postgres'
+  _DB_PASSWORD: ''  # REQUIRED: Set via --substitutions
+  _JWT_SECRET: ''   # REQUIRED: Set via --substitutions
+  _USE_POOLER: 'true'
 
 timeout: 900s
+
+# =============================================================================
+# DEPLOYMENT INSTRUCTIONS
+# =============================================================================
+#
+# IMPORTANT: For Cloud Run, use Supabase CONNECTION POOLER (not direct connection)
+#
+# Step 1: Get Pooler Connection String from Supabase Dashboard
+# ────────────────────────────────────────────────────────────
+# 1. Go to: https://supabase.com/dashboard/project/lqmocewqozpyzsknocrc/settings/database
+# 2. Scroll to "Connection Pooling" section
+# 3. Copy the "Connection string" (Transaction mode)
+# 4. Extract: Host, Port, User from the connection string
+#
+# Example pooler connection string:
+#   postgresql://postgres.lqmocewqozpyzsknocrc:[PASSWORD]@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
+#
+# Extracted values:
+#   _DB_HOST: aws-0-ap-southeast-1.pooler.supabase.com
+#   _DB_PORT: 6543
+#   _DB_USER: postgres.lqmocewqozpyzsknocrc
+#   _DB_NAME: postgres
+#
+# Step 2: Deploy with Cloud Build
+# ────────────────────────────────
+# gcloud builds submit --config=cloudbuild.yaml \
+#   --substitutions=_DB_PASSWORD="your-supabase-db-password",_JWT_SECRET="nTc07yu+7iGPlEP5EJwSinXey1ja3BMWu34TR/CSnYk="
+#
+# Step 3: Or update existing Cloud Run service directly
+# ─────────────────────────────────────────────────────
+# gcloud run services update cpls-be \
+#   --region=asia-southeast1 \
+#   --set-env-vars="DB_HOST=aws-0-ap-southeast-1.pooler.supabase.com" \
+#   --set-env-vars="DB_PORT=6543" \
+#   --set-env-vars="DB_USER=postgres.lqmocewqozpyzsknocrc" \
+#   --set-env-vars="DB_PASSWORD=your-supabase-db-password" \
+#   --set-env-vars="DB_NAME=postgres" \
+#   --set-env-vars="JWT_SECRET=nTc07yu+7iGPlEP5EJwSinXey1ja3BMWu34TR/CSnYk=" \
+#   --set-env-vars="ENVIRONMENT=production" \
+#   --set-env-vars="USE_POOLER=true"
+#
+# =============================================================================
+# WHY USE POOLER?
+# =============================================================================
+# Direct connection (db.xxx.supabase.co:5432) has issues with serverless:
+# - Connection limits exhausted quickly
+# - IPv6 resolution problems
+# - Cold start connection failures
+#
+# Pooler connection (pooler.supabase.com:6543) is designed for serverless:
+# - Manages connection pooling automatically
+# - Better for Cloud Run's ephemeral instances
+# - More reliable connections
+# =============================================================================
