@@ -1,8 +1,11 @@
 package routes
 
 import (
+	"net/http"
+
 	"go_backend_project/admin"
 	"go_backend_project/controllers"
+	"go_backend_project/models"
 	"go_backend_project/services/trading"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +33,37 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// API v1 group
 	api := router.Group("/api/v1")
 	{
+		// Database health check endpoint
+		api.GET("/health/db", func(c *gin.Context) {
+			sqlDB, err := db.DB()
+			if err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"status":  "error",
+					"message": "Failed to get database connection",
+				})
+				return
+			}
+
+			if err := sqlDB.Ping(); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"status":  "error",
+					"message": "Database connection failed",
+				})
+				return
+			}
+
+			// Check if admin_users table exists and has admin users
+			var adminCount int64
+			db.Model(&models.AdminUser{}).Count(&adminCount)
+
+			c.JSON(http.StatusOK, gin.H{
+				"status":       "ok",
+				"message":      "Database connection successful",
+				"admin_users":  adminCount,
+				"db_connected": true,
+			})
+		})
+
 		// User routes
 		users := api.Group("/users")
 		{
