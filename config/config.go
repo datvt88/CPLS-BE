@@ -53,6 +53,15 @@ func LoadConfig() (*Config, error) {
 
 // InitDB initializes database connection
 func InitDB() (*gorm.DB, error) {
+	// Validate required configuration
+	if AppConfig.DBHost == "" || AppConfig.DBHost == "localhost" {
+		log.Printf("WARNING: DB_HOST is '%s'. For production, set DB_HOST environment variable to your Supabase/Cloud SQL host", AppConfig.DBHost)
+	}
+	if AppConfig.DBPassword == "" {
+		log.Printf("ERROR: DB_PASSWORD is empty. Database connection will fail.")
+		return nil, fmt.Errorf("DB_PASSWORD environment variable is required")
+	}
+
 	// Log connection info (masked for security)
 	log.Printf("Connecting to database: host=%s port=%s user=%s dbname=%s",
 		maskHost(AppConfig.DBHost),

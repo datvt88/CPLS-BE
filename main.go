@@ -159,7 +159,7 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 // maintenanceErrorMessage is the error message shown when database is unavailable
-const maintenanceErrorMessage = "Service temporarily unavailable. Database connection failed. Please try again later."
+const maintenanceErrorMessage = "Service temporarily unavailable. Database connection failed. Please check environment variables (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME) in Cloud Run configuration."
 
 // setupMaintenanceRoutes sets up routes that display maintenance messages when database is unavailable
 func setupMaintenanceRoutes(router *gin.Engine) {

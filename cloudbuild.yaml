@@ -23,5 +23,32 @@ steps:
       - '--cpu=1'
       - '--timeout=300'
       - '--port=8080'
+      - '--set-env-vars=ENVIRONMENT=production,DB_PORT=5432,DB_NAME=postgres'
+      - '--update-secrets=DB_HOST=DB_HOST:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,JWT_SECRET=JWT_SECRET:latest'
 
 timeout: 900s
+
+# =============================================================================
+# REQUIRED SECRETS IN SECRET MANAGER
+# =============================================================================
+# Before deploying, create the following secrets in Google Secret Manager:
+#
+# gcloud secrets create DB_HOST --replication-policy="automatic"
+# echo -n "db.xxxxxxxxxxxxx.supabase.co" | gcloud secrets versions add DB_HOST --data-file=-
+#
+# gcloud secrets create DB_USER --replication-policy="automatic"
+# echo -n "postgres" | gcloud secrets versions add DB_USER --data-file=-
+#
+# gcloud secrets create DB_PASSWORD --replication-policy="automatic"
+# echo -n "your-supabase-password" | gcloud secrets versions add DB_PASSWORD --data-file=-
+#
+# gcloud secrets create JWT_SECRET --replication-policy="automatic"
+# echo -n "your-jwt-secret-at-least-32-chars" | gcloud secrets versions add JWT_SECRET --data-file=-
+#
+# Grant Cloud Run access to secrets:
+# PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+# gcloud secrets add-iam-policy-binding DB_HOST \
+#   --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+#   --role="roles/secretmanager.secretAccessor"
+# (Repeat for DB_USER, DB_PASSWORD, JWT_SECRET)
+# =============================================================================
