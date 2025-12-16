@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -155,6 +156,9 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
+// maintenanceErrorMessage is the error message shown when database is unavailable
+const maintenanceErrorMessage = "Service temporarily unavailable. Database connection failed. Please try again later."
+
 // setupMaintenanceRoutes sets up routes that display maintenance messages when database is unavailable
 func setupMaintenanceRoutes(router *gin.Engine) {
 	// Admin routes - show login page with maintenance error
@@ -162,16 +166,16 @@ func setupMaintenanceRoutes(router *gin.Engine) {
 	{
 		// Admin root - redirect to login
 		adminRoutes.GET("", func(c *gin.Context) {
-			c.Redirect(302, "/admin/login")
+			c.Redirect(http.StatusFound, "/admin/login")
 		})
 		adminRoutes.GET("/login", func(c *gin.Context) {
-			c.HTML(503, "login.html", gin.H{
-				"error": "Service temporarily unavailable. Database connection failed. Please try again later.",
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+				"error": maintenanceErrorMessage,
 			})
 		})
 		adminRoutes.POST("/login", func(c *gin.Context) {
-			c.HTML(503, "login.html", gin.H{
-				"error": "Service temporarily unavailable. Database connection failed. Please try again later.",
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+				"error": maintenanceErrorMessage,
 			})
 		})
 	}
