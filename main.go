@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"log"
 	"os"
 	"os/signal"
@@ -35,6 +36,13 @@ func main() {
 	// CORS middleware
 	router.Use(corsMiddleware())
 
+	// Load HTML templates with custom functions (available even without database for maintenance pages)
+	router.SetFuncMap(template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+		"sub": func(a, b int) int { return a - b },
+	})
+	router.LoadHTMLGlob("admin/templates/*.html")
+
 	// Health check endpoint (available even without database)
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -63,7 +71,10 @@ func main() {
 	if err != nil {
 		log.Printf("Warning: Failed to connect to database: %v", err)
 		log.Println("Server will start but database features will be unavailable")
-		
+
+		// Set up maintenance mode routes for admin panel
+		setupMaintenanceRoutes(router)
+
 		// Start server without database features
 		startServer(router, cfg.Port)
 		return
@@ -141,5 +152,27 @@ func corsMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+// setupMaintenanceRoutes sets up routes that display maintenance messages when database is unavailable
+func setupMaintenanceRoutes(router *gin.Engine) {
+	// Admin routes - show login page with maintenance error
+	adminRoutes := router.Group("/admin")
+	{
+		// Admin root - redirect to login
+		adminRoutes.GET("", func(c *gin.Context) {
+			c.Redirect(302, "/admin/login")
+		})
+		adminRoutes.GET("/login", func(c *gin.Context) {
+			c.HTML(503, "login.html", gin.H{
+				"error": "Service temporarily unavailable. Database connection failed. Please try again later.",
+			})
+		})
+		adminRoutes.POST("/login", func(c *gin.Context) {
+			c.HTML(503, "login.html", gin.H{
+				"error": "Service temporarily unavailable. Database connection failed. Please try again later.",
+			})
+		})
 	}
 }
