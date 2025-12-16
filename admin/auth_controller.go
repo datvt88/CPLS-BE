@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"go_backend_project/models"
@@ -21,6 +22,11 @@ type AuthController struct {
 // NewAuthController creates a new auth controller
 func NewAuthController(db *gorm.DB) *AuthController {
 	return &AuthController{db: db}
+}
+
+// isSecureMode returns true if running in production mode (HTTPS)
+func isSecureMode() bool {
+	return os.Getenv("ENVIRONMENT") == "production"
 }
 
 // LoginPage shows the login page
@@ -95,8 +101,8 @@ func (ac *AuthController) Login(c *gin.Context) {
 	now := time.Now()
 	ac.db.Model(&admin).Update("last_login_at", now)
 
-	// Set session cookie
-	c.SetCookie("admin_session", token, 86400, "/admin", "", false, true)
+	// Set session cookie (secure in production)
+	c.SetCookie("admin_session", token, 86400, "/admin", "", isSecureMode(), true)
 
 	log.Printf("Admin user %s logged in successfully", username)
 	c.Redirect(http.StatusFound, "/admin")
@@ -110,8 +116,8 @@ func (ac *AuthController) Logout(c *gin.Context) {
 		ac.db.Where("token = ?", token).Delete(&models.AdminSession{})
 	}
 
-	// Clear cookie
-	c.SetCookie("admin_session", "", -1, "/admin", "", false, true)
+	// Clear cookie (secure in production)
+	c.SetCookie("admin_session", "", -1, "/admin", "", isSecureMode(), true)
 	c.Redirect(http.StatusFound, "/admin/login")
 }
 

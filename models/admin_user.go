@@ -1,6 +1,7 @@
 package models
 
 import (
+	"os"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -71,15 +72,25 @@ func SeedDefaultAdminUser(db *gorm.DB) error {
 		return nil
 	}
 
+	// Get credentials from environment or use defaults
+	username := os.Getenv("ADMIN_DEFAULT_USERNAME")
+	if username == "" {
+		username = "datvt8x"
+	}
+	password := os.Getenv("ADMIN_DEFAULT_PASSWORD")
+	if password == "" {
+		password = "@abcd4321"
+	}
+
 	// Create default admin user
 	admin := &AdminUser{
-		Username: "datvt8x",
+		Username: username,
 		Email:    "admin@cpls.com",
 		FullName: "Administrator",
 		Role:     "superadmin",
 		IsActive: true,
 	}
-	if err := admin.SetPassword("@abcd4321"); err != nil {
+	if err := admin.SetPassword(password); err != nil {
 		return err
 	}
 

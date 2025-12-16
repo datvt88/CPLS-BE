@@ -371,6 +371,17 @@ func (ac *AdminController) CreateAdminUserAction(c *gin.Context) {
 // UpdateUserStatusAction updates user active status
 func (ac *AdminController) UpdateUserStatusAction(c *gin.Context) {
 	userID := c.PostForm("user_id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		return
+	}
+
+	// Validate userID is a valid number
+	if _, err := strconv.ParseUint(userID, 10, 32); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID format"})
+		return
+	}
+
 	isActive := c.PostForm("is_active") == "true"
 
 	if err := ac.db.Model(&models.User{}).Where("id = ?", userID).Update("is_active", isActive).Error; err != nil {
@@ -384,7 +395,29 @@ func (ac *AdminController) UpdateUserStatusAction(c *gin.Context) {
 // UpdateUserRoleAction updates user role
 func (ac *AdminController) UpdateUserRoleAction(c *gin.Context) {
 	userID := c.PostForm("user_id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		return
+	}
+
+	// Validate userID is a valid number
+	if _, err := strconv.ParseUint(userID, 10, 32); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID format"})
+		return
+	}
+
 	role := c.PostForm("role")
+	if role == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Role is required"})
+		return
+	}
+
+	// Validate role is a valid value
+	validRoles := map[string]bool{"user": true, "premium": true, "admin": true}
+	if !validRoles[role] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role. Must be user, premium, or admin"})
+		return
+	}
 
 	if err := ac.db.Model(&models.User{}).Where("id = ?", userID).Update("role", role).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user role"})
