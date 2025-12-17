@@ -51,9 +51,8 @@
             font-weight: bold;
         }
         .badge-free { background: #95a5a6; }
-        .badge-basic { background: #3498db; }
         .badge-premium { background: #9b59b6; }
-        .badge-enterprise { background: #f39c12; }
+        .badge-diamond { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
         .table-hover tbody tr:hover {
             background-color: rgba(52, 152, 219, 0.1);
         }
@@ -240,12 +239,10 @@
                                             </td>
                                             <td>{{ if .PhoneNumber }}{{ .PhoneNumber }}{{ else }}<span class="text-muted">-</span>{{ end }}</td>
                                             <td>
-                                                {{ if eq .Membership "enterprise" }}
-                                                <span class="badge badge-enterprise">Enterprise</span>
+                                                {{ if eq .Membership "diamond" }}
+                                                <span class="badge badge-diamond">Diamond</span>
                                                 {{ else if eq .Membership "premium" }}
                                                 <span class="badge badge-premium">Premium</span>
-                                                {{ else if eq .Membership "basic" }}
-                                                <span class="badge badge-basic">Basic</span>
                                                 {{ else }}
                                                 <span class="badge badge-free">Free</span>
                                                 {{ end }}
@@ -377,9 +374,8 @@
                             <label class="form-label">Subscription Plan</label>
                             <select class="form-select" name="membership">
                                 <option value="free">Free</option>
-                                <option value="basic">Basic</option>
                                 <option value="premium">Premium</option>
-                                <option value="enterprise">Enterprise</option>
+                                <option value="diamond">Diamond</option>
                             </select>
                         </div>
                     </form>
@@ -468,9 +464,8 @@
                             <label class="form-label">Subscription Plan</label>
                             <select class="form-select" name="plan" id="subPlan">
                                 <option value="free">Free</option>
-                                <option value="basic">Basic</option>
                                 <option value="premium">Premium</option>
-                                <option value="enterprise">Enterprise</option>
+                                <option value="diamond">Diamond</option>
                             </select>
                         </div>
                         <div class="mb-3">
