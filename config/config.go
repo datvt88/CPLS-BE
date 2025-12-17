@@ -22,8 +22,6 @@ type Config struct {
 	DBName      string
 	JWTSecret   string
 	Environment string
-	// Supabase connection pooler mode: "transaction" or "session"
-	DBPoolMode string
 }
 
 var AppConfig *Config
@@ -39,7 +37,6 @@ func LoadConfig() (*Config, error) {
 		DBName:      getEnv("DB_NAME", "postgres"),
 		JWTSecret:   getEnv("JWT_SECRET", "default-secret"),
 		Environment: getEnv("ENVIRONMENT", "production"),
-		DBPoolMode:  getEnv("DB_POOL_MODE", ""),
 	}
 
 	log.Printf("Config: PORT=%s, DB_HOST=%s, DB_USER=%s, DB_NAME=%s, ENV=%s",

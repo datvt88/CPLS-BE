@@ -33,9 +33,15 @@ steps:
       - '--set-env-vars=DB_NAME=postgres'
       - '--set-env-vars=JWT_SECRET=${_JWT_SECRET}'
 
+# Substitution variables - MUST be configured in Cloud Build trigger
+# Go to: Cloud Console > Cloud Build > Triggers > Edit > Substitution variables
+# Required:
+#   _DB_HOST: Your Supabase database host (e.g., db.xxxxxxxxxxxxx.supabase.co)
+#   _DB_PASSWORD: Your Supabase database password
+#   _JWT_SECRET: Strong random secret for JWT (generate with: openssl rand -base64 32)
 substitutions:
   _DB_HOST: 'db.xxxxxxxxxxxxx.supabase.co'
-  _DB_PASSWORD: ''
-  _JWT_SECRET: ''
+  _DB_PASSWORD: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
+  _JWT_SECRET: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
 
 timeout: 900s
