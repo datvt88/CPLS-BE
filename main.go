@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"go_backend_project/config"
 	"go_backend_project/models"
@@ -15,178 +17,169 @@ import (
 	"go_backend_project/scheduler"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
+var db *gorm.DB
+var dbReady = false
+
 func main() {
-	// Load configuration
+	log.Println("=== CPLS Backend Starting ===")
+
+	// Load config
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		log.Fatalf("LoadConfig failed: %v", err)
 	}
-
-	log.Printf("Starting CPLS Backend API in %s mode...", cfg.Environment)
 
 	// Set Gin mode
-	if cfg.Environment == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	gin.SetMode(gin.ReleaseMode)
 
-	// Initialize Gin router
-	router := gin.Default()
-
-	// CORS middleware
+	// Create router
+	router := gin.New()
+	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
 
-	// Load HTML templates with custom functions (available even without database for maintenance pages)
+	// Load templates
 	router.SetFuncMap(template.FuncMap{
 		"add": func(a, b int) int { return a + b },
 		"sub": func(a, b int) int { return a - b },
 	})
 	router.LoadHTMLGlob("admin/templates/*.html")
 
-	// Health check endpoint (available even without database)
+	// Health check - always available
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"status":      "ok",
-			"message":     "CPLS Backend API is running",
-			"version":     "2.0.0",
-			"environment": cfg.Environment,
-			"db_host":     maskString(cfg.DBHost),
+			"status":   "ok",
+			"db_ready": dbReady,
 		})
 	})
 
-	// Root path - API info endpoint (available even without database)
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":  "ok",
-			"message": "CPLS Backend API is running",
-			"version": "2.0.0",
-			"endpoints": gin.H{
-				"health": "/health",
-				"api":    "/api/v1",
-				"admin":  "/admin",
-			},
+			"message": "CPLS Backend API",
 		})
 	})
 
-	// Initialize database
-	db, err := config.InitDB()
+	// Setup maintenance routes first
+	setupMaintenanceRoutes(router)
+
+	// Start server immediately in goroutine
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%s", cfg.Port),
+		Handler: router,
+	}
+
+	go func() {
+		log.Printf("Server starting on port %s", cfg.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	// Give server time to start
+	time.Sleep(100 * time.Millisecond)
+	log.Println("Server is now listening")
+
+	// Now try database connection (non-blocking for server)
+	go initDatabaseAndRoutes(router, cfg)
+
+	// Wait for shutdown signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server.Shutdown(ctx)
+}
+
+func initDatabaseAndRoutes(router *gin.Engine, cfg *config.Config) {
+	log.Println("Attempting database connection...")
+
+	var err error
+	db, err = config.InitDB()
 	if err != nil {
-		log.Printf("Warning: Failed to connect to database: %v", err)
-		log.Println("Server will start but database features will be unavailable")
-
-		// Set up maintenance mode routes for admin panel
-		setupMaintenanceRoutes(router)
-
-		// Start server without database features
-		startServer(router, cfg.Port)
+		log.Printf("Database connection failed: %v", err)
+		log.Println("Running in maintenance mode")
 		return
 	}
 
-	log.Println("Database connected successfully")
+	dbReady = true
+	log.Println("Database ready, running migrations...")
 
 	// Run migrations
-	log.Println("Running database migrations...")
 	if err := models.MigrateStockModels(db); err != nil {
-		log.Fatalf("Failed to migrate stock models: %v", err)
+		log.Printf("MigrateStockModels failed: %v", err)
 	}
 	if err := models.MigrateTradingModels(db); err != nil {
-		log.Fatalf("Failed to migrate trading models: %v", err)
+		log.Printf("MigrateTradingModels failed: %v", err)
 	}
 	if err := models.MigrateUserModels(db); err != nil {
-		log.Fatalf("Failed to migrate user models: %v", err)
+		log.Printf("MigrateUserModels failed: %v", err)
 	}
 	if err := models.MigrateSubscriptionModels(db); err != nil {
-		log.Fatalf("Failed to migrate subscription models: %v", err)
+		log.Printf("MigrateSubscriptionModels failed: %v", err)
 	}
 	if err := models.MigrateAdminModels(db); err != nil {
-		log.Fatalf("Failed to migrate admin models: %v", err)
+		log.Printf("MigrateAdminModels failed: %v", err)
 	}
-	log.Println("Migrations completed successfully")
 
-	// Seed default admin user
+	// Seed admin
 	if err := models.SeedDefaultAdminUser(db); err != nil {
-		log.Printf("Warning: Failed to seed default admin user: %v", err)
+		log.Printf("SeedDefaultAdminUser failed: %v", err)
 	}
 
-	// Setup routes
+	// Setup full routes
 	routes.SetupRoutes(router, db)
 
-	// Initialize and start scheduler
+	// Start scheduler
 	sched := scheduler.NewScheduler(db)
 	sched.Start()
 
-	// Graceful shutdown handler
-	go func() {
-		sigint := make(chan os.Signal, 1)
-		signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
-		<-sigint
-
-		log.Println("Shutting down gracefully...")
-		sched.Stop()
-		os.Exit(0)
-	}()
-
-	// Start server
-	startServer(router, cfg.Port)
+	log.Println("=== Application fully initialized ===")
 }
 
-// startServer starts the HTTP server on the given port
-func startServer(router *gin.Engine, port string) {
-	log.Printf("Server starting on port %s", port)
-	log.Printf("API documentation available at http://localhost:%s/health", port)
-
-	if err := router.Run(fmt.Sprintf(":%s", port)); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
-}
-
-// corsMiddleware adds CORS headers
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
-
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
-
 		c.Next()
 	}
 }
 
-// maintenanceErrorMessage is the error message shown when database is unavailable
-const maintenanceErrorMessage = "Service temporarily unavailable. Database connection failed. Please check environment variables (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME) in Cloud Run configuration."
-
-// setupMaintenanceRoutes sets up routes that display maintenance messages when database is unavailable
 func setupMaintenanceRoutes(router *gin.Engine) {
-	// Admin routes - show login page with maintenance error
-	adminRoutes := router.Group("/admin")
+	admin := router.Group("/admin")
 	{
-		// Admin root - redirect to login
-		adminRoutes.GET("", func(c *gin.Context) {
+		admin.GET("", func(c *gin.Context) {
 			c.Redirect(http.StatusFound, "/admin/login")
 		})
-		adminRoutes.GET("/login", func(c *gin.Context) {
-			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-				"error": maintenanceErrorMessage,
-			})
+		admin.GET("/login", func(c *gin.Context) {
+			if !dbReady {
+				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+					"error": "Database connection failed. Please check configuration.",
+				})
+				return
+			}
+			c.HTML(http.StatusOK, "login.html", nil)
 		})
-		adminRoutes.POST("/login", func(c *gin.Context) {
-			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-				"error": maintenanceErrorMessage,
+		admin.POST("/login", func(c *gin.Context) {
+			if !dbReady {
+				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+					"error": "Database connection failed.",
+				})
+				return
+			}
+			c.HTML(http.StatusOK, "login.html", gin.H{
+				"error": "Please use the full routes after DB is ready.",
 			})
 		})
 	}
-}
-
-// maskString masks a string for logging, showing only first 5 and last 3 characters
-func maskString(s string) string {
-	if len(s) <= 10 {
-		return "***"
-	}
-	return s[:5] + "***" + s[len(s)-3:]
 }
