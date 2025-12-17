@@ -21,6 +21,7 @@ import (
 )
 
 var globalDB *gorm.DB
+var globalScheduler *scheduler.Scheduler
 
 func main() {
 	log.Println("=== CPLS Backend Starting ===")
@@ -91,16 +92,22 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down...")
+
+	// Stop scheduler if running
+	if globalScheduler != nil {
+		globalScheduler.Stop()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	server.Shutdown(ctx)
 }
 
 // loadTemplates loads HTML templates with error recovery
-func loadTemplates(router *gin.Engine) error {
+func loadTemplates(router *gin.Engine) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("Recovered from template loading panic: %v", r)
+			err = fmt.Errorf("template loading panic: %v", r)
 		}
 	}()
 	router.LoadHTMLGlob("admin/templates/*.html")
@@ -148,8 +155,8 @@ func initializeApp(router *gin.Engine) {
 		routes.SetupRoutes(router, globalDB)
 
 		// Start scheduler
-		sched := scheduler.NewScheduler(globalDB)
-		sched.Start()
+		globalScheduler = scheduler.NewScheduler(globalDB)
+		globalScheduler.Start()
 
 		log.Println("=== Application fully initialized ===")
 	} else {
