@@ -25,7 +25,9 @@ import (
 var globalDB *gorm.DB
 var globalScheduler *scheduler.Scheduler
 var globalAuthController *admin.AuthController
+var globalSupabaseAuthController *admin.SupabaseAuthController
 var authControllerMutex sync.RWMutex
+var useSupabaseOnly bool // Flag to indicate Supabase-only mode
 
 // InitStatus tracks the initialization state of the application
 type InitStatus struct {
@@ -223,22 +225,35 @@ func loadTemplates(router *gin.Engine) (err error) {
 // initializeApp performs database connection and route setup after server starts
 func initializeApp(router *gin.Engine) {
 	log.Println("Initializing application...")
+
+	// Check if we should use Supabase-only mode (no direct DB connection)
+	dbHost := os.Getenv("DB_HOST")
+	supabaseURL := os.Getenv("SUPABASE_URL")
+
+	// If DB_HOST is empty but SUPABASE_URL is set, use Supabase-only mode
+	if dbHost == "" && supabaseURL != "" {
+		log.Println("DB_HOST not set, using Supabase-only mode...")
+		initializeSupabaseOnlyMode(router)
+		return
+	}
+
+	// Normal mode: try to connect to database directly
 	initStatus.SetMessage("Connecting to database...")
 
 	// Try to connect to database with retry mechanism
 	db := connectDBWithRetry(5, 2*time.Second)
-	
+
 	if db != nil {
 		globalDB = db
 		initStatus.SetDBConnected(true)
 		initStatus.SetMessage("Running database migrations...")
-		
+
 		// Run migrations
 		log.Println("Running migrations...")
 		runMigrations(globalDB)
 
 		initStatus.SetMessage("Setting up routes...")
-		
+
 		// Setup full routes
 		routes.SetupRoutes(router, globalDB)
 
@@ -250,14 +265,103 @@ func initializeApp(router *gin.Engine) {
 		initStatus.SetReady(true)
 		log.Println("=== Application fully initialized ===")
 	} else {
-		initStatus.SetMessage("Running in maintenance mode (database unavailable)")
-		initStatus.SetError("Failed to connect to database after retries")
-		initStatus.SetMaintenanceMode(true)
-		
-		// Setup maintenance routes only
-		setupMaintenanceRoutes(router)
-		log.Println("=== Application started in maintenance mode (no database) ===")
+		// Try Supabase-only mode as fallback
+		if supabaseURL != "" {
+			log.Println("Direct DB connection failed, trying Supabase-only mode...")
+			initializeSupabaseOnlyMode(router)
+		} else {
+			initStatus.SetMessage("Running in maintenance mode (database unavailable)")
+			initStatus.SetError("Failed to connect to database after retries")
+			initStatus.SetMaintenanceMode(true)
+
+			// Setup maintenance routes only
+			setupMaintenanceRoutes(router)
+			log.Println("=== Application started in maintenance mode (no database) ===")
+		}
 	}
+}
+
+// initializeSupabaseOnlyMode sets up the application using only Supabase REST API
+func initializeSupabaseOnlyMode(router *gin.Engine) {
+	initStatus.SetMessage("Connecting to Supabase...")
+
+	// Create Supabase auth controller
+	supabaseAuth, err := admin.NewSupabaseAuthController()
+	if err != nil {
+		log.Printf("Failed to create Supabase auth controller: %v", err)
+		initStatus.SetMessage("Failed to connect to Supabase")
+		initStatus.SetError(err.Error())
+		initStatus.SetMaintenanceMode(true)
+		setupMaintenanceRoutes(router)
+		return
+	}
+
+	// Test connection to Supabase
+	if err := supabaseAuth.TestConnection(); err != nil {
+		log.Printf("Supabase connection test failed: %v", err)
+		initStatus.SetMessage("Failed to connect to Supabase")
+		initStatus.SetError(err.Error())
+		initStatus.SetMaintenanceMode(true)
+		setupMaintenanceRoutes(router)
+		return
+	}
+
+	// Set global variables
+	authControllerMutex.Lock()
+	globalSupabaseAuthController = supabaseAuth
+	useSupabaseOnly = true
+	authControllerMutex.Unlock()
+
+	initStatus.SetDBConnected(true)
+	initStatus.SetMessage("Setting up admin routes...")
+
+	// Setup admin routes with Supabase auth
+	setupSupabaseAdminRoutes(router, supabaseAuth)
+
+	initStatus.SetReady(true)
+	log.Println("=== Application initialized in Supabase-only mode ===")
+}
+
+// setupSupabaseAdminRoutes sets up admin routes when using Supabase-only mode
+func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAuthController) {
+	adminRoutes := router.Group("/admin")
+	{
+		// Protected routes (auth required)
+		protected := adminRoutes.Group("")
+		protected.Use(supabaseAuth.AuthMiddleware())
+		{
+			protected.GET("", func(c *gin.Context) {
+				// Simple dashboard for Supabase-only mode
+				c.HTML(http.StatusOK, "dashboard.html", gin.H{
+					"Title":       "CPLS Admin Dashboard",
+					"AdminUser":   c.GetString("admin_username"),
+					"Mode":        "Supabase-only",
+					"Message":     "Running in Supabase-only mode. Some features may be limited.",
+				})
+			})
+			protected.GET("/logout", supabaseAuth.Logout)
+		}
+	}
+
+	// API health check for Supabase mode
+	router.GET("/api/v1/health/db", func(c *gin.Context) {
+		client := supabaseAuth.GetSupabaseClient()
+		count, err := client.GetAdminUserCount()
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":  "error",
+				"message": fmt.Sprintf("Supabase connection error: %v", err),
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":       "ok",
+			"message":      "Supabase connection successful",
+			"admin_users":  count,
+			"db_connected": true,
+			"mode":         "supabase-only",
+		})
+	})
 }
 
 // Database connection constants
@@ -374,17 +478,25 @@ func setupInitialAdminRoutes(router *gin.Engine) {
 		})
 		
 		adminGroup.GET("/login", func(c *gin.Context) {
-			// If auth controller is set (DB connected and routes initialized), use it
+			// Check for Supabase-only mode first
 			authControllerMutex.RLock()
+			supabaseAC := globalSupabaseAuthController
 			ac := globalAuthController
+			isSupabaseMode := useSupabaseOnly
 			authControllerMutex.RUnlock()
+
+			if isSupabaseMode && supabaseAC != nil {
+				supabaseAC.LoginPage(c)
+				return
+			}
 			if ac != nil {
 				ac.LoginPage(c)
 				return
 			}
+
 			// DB is not yet connected, show initializing message with status info
 			ready, _, msg, elapsed, lastErr, retries, maintenanceMode := initStatus.GetStatus()
-			
+
 			// If in maintenance mode, show a clear maintenance message and stop polling
 			if maintenanceMode {
 				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
@@ -394,7 +506,7 @@ func setupInitialAdminRoutes(router *gin.Engine) {
 				})
 				return
 			}
-			
+
 			errorMsg := fmt.Sprintf("System is initializing... (%s)", msg)
 			if lastErr != "" && retries > 0 {
 				errorMsg = fmt.Sprintf("Connecting to database (attempt %d)... Last error: %s", retries, lastErr)
@@ -402,24 +514,32 @@ func setupInitialAdminRoutes(router *gin.Engine) {
 			if elapsed > 60*time.Second && !ready {
 				errorMsg = fmt.Sprintf("System initialization is taking longer than expected. Please wait... (%s)", msg)
 			}
-			
+
 			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
 				"error":        errorMsg,
 				"initializing": true,
 			})
 		})
 		adminGroup.POST("/login", func(c *gin.Context) {
-			// If auth controller is set (DB connected and routes initialized), use it
+			// Check for Supabase-only mode first
 			authControllerMutex.RLock()
+			supabaseAC := globalSupabaseAuthController
 			ac := globalAuthController
+			isSupabaseMode := useSupabaseOnly
 			authControllerMutex.RUnlock()
+
+			if isSupabaseMode && supabaseAC != nil {
+				supabaseAC.Login(c)
+				return
+			}
 			if ac != nil {
 				ac.Login(c)
 				return
 			}
+
 			// DB is not yet connected, cannot login
 			_, _, msg, _, _, _, maintenanceMode := initStatus.GetStatus()
-			
+
 			// If in maintenance mode, show maintenance error
 			if maintenanceMode {
 				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
@@ -429,7 +549,7 @@ func setupInitialAdminRoutes(router *gin.Engine) {
 				})
 				return
 			}
-			
+
 			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
 				"error":        fmt.Sprintf("System is initializing. Please wait... (%s)", msg),
 				"initializing": true,
