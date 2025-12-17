@@ -7,6 +7,7 @@ toolchain go1.24.11
 require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/go-co-op/gocron v1.37.0
+	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/shopspring/decimal v1.4.0
 	golang.org/x/crypto v0.46.0
 	gorm.io/driver/postgres v1.6.0
