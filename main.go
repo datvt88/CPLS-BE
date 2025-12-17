@@ -21,6 +21,7 @@ import (
 )
 
 var globalDB *gorm.DB
+var globalScheduler *scheduler.Scheduler
 
 func main() {
 	log.Println("=== CPLS Backend Starting ===")
@@ -39,14 +40,16 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
 
-	// Load templates
+	// Load templates with error handling (don't fail if templates can't be loaded)
 	router.SetFuncMap(template.FuncMap{
 		"add": func(a, b int) int { return a + b },
 		"sub": func(a, b int) int { return a - b },
 	})
-	router.LoadHTMLGlob("admin/templates/*.html")
+	if err := loadTemplates(router); err != nil {
+		log.Printf("Warning: Failed to load templates: %v", err)
+	}
 
-	// Health check - always available
+	// Health check - always available (responds immediately for Cloud Run health checks)
 	router.GET("/health", func(c *gin.Context) {
 		dbStatus := "disconnected"
 		if globalDB != nil {
@@ -65,9 +68,58 @@ func main() {
 		})
 	})
 
-	// Try to connect to database FIRST (with timeout)
+	// Start server IMMEDIATELY to respond to Cloud Run health checks
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%s", cfg.Port),
+		Handler: router,
+	}
+
+	go func() {
+		log.Printf("Server starting on port %s", cfg.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	log.Println("=== Server is ready to accept connections ===")
+
+	// Initialize database and routes in background AFTER server is listening
+	go initializeApp(router)
+
+	// Wait for shutdown signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down...")
+
+	// Stop scheduler if running
+	if globalScheduler != nil {
+		globalScheduler.Stop()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server.Shutdown(ctx)
+}
+
+// loadTemplates loads HTML templates with error recovery
+func loadTemplates(router *gin.Engine) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("template loading panic: %v", r)
+		}
+	}()
+	router.LoadHTMLGlob("admin/templates/*.html")
+	return nil
+}
+
+// initializeApp performs database connection and route setup after server starts
+func initializeApp(router *gin.Engine) {
+	log.Println("Initializing application...")
+
+	// Try to connect to database (with timeout)
 	log.Println("Attempting database connection...")
-	dbConnected := false
 
 	// Create a channel to signal DB connection result
 	dbChan := make(chan *gorm.DB, 1)
@@ -81,7 +133,8 @@ func main() {
 		}
 	}()
 
-	// Wait for DB connection with timeout (max 8 seconds to leave time for server startup)
+	// Wait for DB connection with timeout (30 seconds for Cloud Run)
+	var dbConnected bool
 	select {
 	case db := <-dbChan:
 		if db != nil {
@@ -89,8 +142,8 @@ func main() {
 			dbConnected = true
 			log.Println("Database connected successfully!")
 		}
-	case <-time.After(8 * time.Second):
-		log.Println("Database connection timeout, starting without DB")
+	case <-time.After(30 * time.Second):
+		log.Println("Database connection timeout")
 	}
 
 	if dbConnected {
@@ -102,38 +155,15 @@ func main() {
 		routes.SetupRoutes(router, globalDB)
 
 		// Start scheduler
-		sched := scheduler.NewScheduler(globalDB)
-		sched.Start()
-		defer sched.Stop()
+		globalScheduler = scheduler.NewScheduler(globalDB)
+		globalScheduler.Start()
+
+		log.Println("=== Application fully initialized ===")
 	} else {
 		// Setup maintenance routes only
 		setupMaintenanceRoutes(router)
+		log.Println("=== Application started in maintenance mode (no database) ===")
 	}
-
-	// Start server
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.Port),
-		Handler: router,
-	}
-
-	go func() {
-		log.Printf("Server starting on port %s", cfg.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
-		}
-	}()
-
-	log.Println("=== Server is ready ===")
-
-	// Wait for shutdown signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	server.Shutdown(ctx)
 }
 
 func runMigrations(db *gorm.DB) {
@@ -172,6 +202,16 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 func setupMaintenanceRoutes(router *gin.Engine) {
+	// Use NoRoute handler for unknown paths instead of wildcard to avoid conflicts
+	router.NoRoute(func(c *gin.Context) {
+		// Check if it's an admin route
+		if len(c.Request.URL.Path) >= 6 && c.Request.URL.Path[:6] == "/admin" {
+			c.Redirect(http.StatusFound, "/admin/login")
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+	})
+
 	admin := router.Group("/admin")
 	{
 		admin.GET("", func(c *gin.Context) {
@@ -186,10 +226,6 @@ func setupMaintenanceRoutes(router *gin.Engine) {
 			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
 				"error": "Database connection failed. Cannot login at this time.",
 			})
-		})
-		// Catch all other admin routes
-		admin.GET("/*path", func(c *gin.Context) {
-			c.Redirect(http.StatusFound, "/admin/login")
 		})
 	}
 }
