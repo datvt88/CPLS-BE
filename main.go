@@ -47,8 +47,28 @@ func main() {
 
 	// Load templates
 	router.SetFuncMap(template.FuncMap{
-		"add": func(a, b int) int { return a + b },
-		"sub": func(a, b int) int { return a - b },
+		"add":      func(a, b int) int { return a + b },
+		"sub":      func(a, b int) int { return a - b },
+		"subtract": func(a, b int) int { return a - b },
+		"iterate": func(count int) []int {
+			result := make([]int, count)
+			for i := 0; i < count; i++ {
+				result[i] = i
+			}
+			return result
+		},
+		"slice": func(s string, start, end int) string {
+			if start < 0 {
+				start = 0
+			}
+			if end > len(s) {
+				end = len(s)
+			}
+			if start >= len(s) {
+				return ""
+			}
+			return s[start:end]
+		},
 	})
 	if err := loadTemplates(router); err != nil {
 		log.Printf("Warning: Failed to load templates: %v", err)
@@ -248,11 +268,16 @@ func setupAdminLoginRoutes(router *gin.Engine) {
 
 // setupSupabaseAdminRoutes sets up protected admin routes for Supabase mode
 func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAuthController) {
+	// Create user management controller
+	supabaseClient := supabaseAuth.GetSupabaseClient()
+	userMgmtCtrl := admin.NewUserManagementController(supabaseClient)
+
 	adminRoutes := router.Group("/admin")
 	{
 		protected := adminRoutes.Group("")
 		protected.Use(supabaseAuth.AuthMiddleware())
 		{
+			// Dashboard
 			protected.GET("", func(c *gin.Context) {
 				c.HTML(http.StatusOK, "dashboard_simple.html", gin.H{
 					"Title":     "CPLS Admin Dashboard",
@@ -260,6 +285,41 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				})
 			})
 			protected.GET("/logout", supabaseAuth.Logout)
+
+			// User Management Pages
+			protected.GET("/users", userMgmtCtrl.ListUsers)
+
+			// User Management API
+			userAPI := protected.Group("/api/users")
+			{
+				userAPI.GET("", func(c *gin.Context) {
+					// API version of list users
+					page := 1
+					pageSize := 20
+					search := c.Query("search")
+					sortBy := c.DefaultQuery("sort_by", "created_at")
+					sortOrder := c.DefaultQuery("sort_order", "desc")
+
+					result, err := supabaseClient.GetProfiles(page, pageSize, search, sortBy, sortOrder)
+					if err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+						return
+					}
+					c.JSON(http.StatusOK, result)
+				})
+				userAPI.GET("/stats", userMgmtCtrl.GetStats)
+				userAPI.GET("/export", userMgmtCtrl.ExportUsers)
+				userAPI.POST("", userMgmtCtrl.CreateUser)
+				userAPI.POST("/sync-all", userMgmtCtrl.SyncAllUsers)
+				userAPI.GET("/:id", userMgmtCtrl.GetUser)
+				userAPI.PUT("/:id", userMgmtCtrl.UpdateUser)
+				userAPI.DELETE("/:id", userMgmtCtrl.DeleteUser)
+				userAPI.POST("/:id/ban", userMgmtCtrl.BanUser)
+				userAPI.POST("/:id/unban", userMgmtCtrl.UnbanUser)
+				userAPI.POST("/:id/subscription", userMgmtCtrl.UpdateSubscription)
+				userAPI.POST("/:id/reset-password", userMgmtCtrl.ResetPassword)
+				userAPI.POST("/:id/sync", userMgmtCtrl.SyncUser)
+			}
 		}
 	}
 
@@ -282,10 +342,15 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 			})
 			return
 		}
+
+		// Get profile stats too
+		profileCount, _ := supabaseClient.GetProfileCount()
+
 		c.JSON(http.StatusOK, gin.H{
 			"status":       "ok",
 			"message":      "Supabase connection successful",
 			"admin_users":  count,
+			"profiles":     profileCount,
 			"db_connected": true,
 		})
 	})
