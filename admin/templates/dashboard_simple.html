@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPLS Admin Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: #2c3e50;
+        }
+        .sidebar a {
+            color: #ecf0f1;
+            text-decoration: none;
+            padding: 15px;
+            display: block;
+            transition: all 0.3s;
+        }
+        .sidebar a:hover {
+            background: #34495e;
+            padding-left: 25px;
+        }
+        .sidebar a.active {
+            background: #3498db;
+        }
+        .stat-card {
+            border-left: 4px solid #3498db;
+        }
+        .navbar-brand {
+            font-weight: bold;
+            color: #2c3e50 !important;
+        }
+        .sidebar-section {
+            color: #95a5a6;
+            font-size: 0.8rem;
+            padding: 10px 15px 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .mode-badge {
+            background: #9b59b6;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar px-0">
+                <div class="text-center py-4">
+                    <h4 class="text-white">CPLS Admin</h4>
+                    <p class="text-muted small">Stock Trading System</p>
+                </div>
+                <nav>
+                    <a href="/admin" class="active">
+                        <i class="bi bi-speedometer2"></i> Dashboard
+                    </a>
+
+                    <div class="sidebar-section">System</div>
+                    <a href="/api/v1/health/db" target="_blank">
+                        <i class="bi bi-database"></i> DB Health
+                    </a>
+                    <a href="/health" target="_blank">
+                        <i class="bi bi-heart-pulse"></i> Health Check
+                    </a>
+                    <hr class="text-white">
+                    <a href="/admin/logout" class="text-danger">
+                        <i class="bi bi-box-arrow-right"></i> Logout
+                    </a>
+                </nav>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-10">
+                <nav class="navbar navbar-light bg-light mb-4">
+                    <div class="container-fluid">
+                        <span class="navbar-brand mb-0 h1">Dashboard</span>
+                        <div class="d-flex align-items-center">
+                            <span class="mode-badge me-3">
+                                <i class="bi bi-cloud"></i> Supabase Mode
+                            </span>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-person-circle"></i> {{ .AdminUser }}
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><span class="dropdown-item-text text-muted">Admin</span></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item text-danger" href="/admin/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+
+                <div class="container-fluid">
+                    <!-- Welcome Card -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card border-primary">
+                                <div class="card-body">
+                                    <h4 class="card-title"><i class="bi bi-check-circle text-success"></i> Welcome to CPLS Admin</h4>
+                                    <p class="card-text">You are running in <strong>Supabase-only mode</strong>. This mode uses Supabase REST API for authentication.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stats Cards -->
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="card stat-card">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">Connection Status</h6>
+                                    <h2 class="card-title text-success"><i class="bi bi-cloud-check"></i> Connected</h2>
+                                    <p class="card-text">Supabase REST API</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card stat-card" style="border-left-color: #27ae60;">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">Authentication</h6>
+                                    <h2 class="card-title text-success"><i class="bi bi-shield-check"></i> Active</h2>
+                                    <p class="card-text">Session-based auth</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card stat-card" style="border-left-color: #9b59b6;">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">Mode</h6>
+                                    <h2 class="card-title"><i class="bi bi-cloud"></i> Supabase</h2>
+                                    <p class="card-text">REST API only</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Info -->
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header bg-primary text-white">
+                                    <h5><i class="bi bi-info-circle"></i> System Information</h5>
+                                </div>
+                                <div class="card-body">
+                                    <dl class="row mb-0">
+                                        <dt class="col-sm-4">API Version</dt>
+                                        <dd class="col-sm-8">v1.0</dd>
+
+                                        <dt class="col-sm-4">Mode</dt>
+                                        <dd class="col-sm-8">Supabase-only</dd>
+
+                                        <dt class="col-sm-4">Database</dt>
+                                        <dd class="col-sm-8">Supabase PostgreSQL (via REST)</dd>
+
+                                        <dt class="col-sm-4">Auth Table</dt>
+                                        <dd class="col-sm-8"><code>admin_users</code></dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header bg-success text-white">
+                                    <h5><i class="bi bi-link-45deg"></i> Quick Links</h5>
+                                </div>
+                                <div class="card-body">
+                                    <a href="/health" target="_blank" class="btn btn-outline-primary btn-block mb-2 w-100">
+                                        <i class="bi bi-heart-pulse"></i> Health Check
+                                    </a>
+                                    <a href="/api/v1/health/db" target="_blank" class="btn btn-outline-success btn-block mb-2 w-100">
+                                        <i class="bi bi-database"></i> Database Health
+                                    </a>
+                                    <a href="/" target="_blank" class="btn btn-outline-secondary btn-block w-100">
+                                        <i class="bi bi-house"></i> API Root
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Note -->
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="alert alert-info">
+                                <i class="bi bi-lightbulb"></i> <strong>Note:</strong> To enable full functionality (stocks, strategies, backtests, trading bot), configure direct database connection by setting <code>DB_HOST</code> environment variable.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

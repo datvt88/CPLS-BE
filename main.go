@@ -254,7 +254,7 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 		protected.Use(supabaseAuth.AuthMiddleware())
 		{
 			protected.GET("", func(c *gin.Context) {
-				c.HTML(http.StatusOK, "dashboard.html", gin.H{
+				c.HTML(http.StatusOK, "dashboard_simple.html", gin.H{
 					"Title":     "CPLS Admin Dashboard",
 					"AdminUser": c.GetString("admin_username"),
 				})
