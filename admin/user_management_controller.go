@@ -86,7 +86,7 @@ func (ctrl *UserManagementController) CreateUser(c *gin.Context) {
 		FullName    string `json:"full_name"`
 		Nickname    string `json:"nickname"`
 		PhoneNumber string `json:"phone_number"`
-		Plan        string `json:"subscription_plan"`
+		Membership  string `json:"membership"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -108,15 +108,15 @@ func (ctrl *UserManagementController) CreateUser(c *gin.Context) {
 
 	// Create profile
 	profileInput := &services.UserProfileInput{
-		Email:            input.Email,
-		FullName:         input.FullName,
-		Nickname:         input.Nickname,
-		PhoneNumber:      input.PhoneNumber,
-		SubscriptionPlan: input.Plan,
+		Email:       input.Email,
+		FullName:    input.FullName,
+		Nickname:    input.Nickname,
+		PhoneNumber: input.PhoneNumber,
+		Membership:  input.Membership,
 	}
 
-	if profileInput.SubscriptionPlan == "" {
-		profileInput.SubscriptionPlan = "free"
+	if profileInput.Membership == "" {
+		profileInput.Membership = "free"
 	}
 
 	profile, err := ctrl.supabaseClient.CreateProfile(authUser.ID, profileInput)

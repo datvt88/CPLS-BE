@@ -13,34 +13,51 @@ import (
 
 // UserProfile represents a user profile from the profiles table
 type UserProfile struct {
-	ID               string     `json:"id"`
-	Email            string     `json:"email"`
-	PhoneNumber      string     `json:"phone_number"`
-	FullName         string     `json:"full_name"`
-	Nickname         string     `json:"nickname"`
-	AvatarURL        string     `json:"avatar_url"`
-	SubscriptionPlan string     `json:"subscription_plan"` // free, basic, premium, enterprise
-	SubscriptionEnd  *time.Time `json:"subscription_end"`
-	IsActive         bool       `json:"is_active"`
-	IsBanned         bool       `json:"is_banned"`
-	BanReason        string     `json:"ban_reason"`
-	LastLoginAt      *time.Time `json:"last_login_at"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	ID                   string     `json:"id"`
+	Email                string     `json:"email"`
+	PhoneNumber          string     `json:"phone_number"`
+	FullName             string     `json:"full_name"`
+	Nickname             string     `json:"nickname"`
+	StockAccountNumber   string     `json:"stock_account_number"`
+	AvatarURL            string     `json:"avatar_url"`
+	ZaloID               string     `json:"zalo_id"`
+	Birthday             string     `json:"birthday"`
+	Gender               string     `json:"gender"`
+	Provider             string     `json:"provider"`
+	ProviderID           string     `json:"provider_id"`
+	Membership           string     `json:"membership"` // free, basic, premium, enterprise
+	MembershipExpiresAt  *time.Time `json:"membership_expires_at"`
+	TcbsAPIKey           string     `json:"tcbs_api_key"`
+	TcbsConnectedAt      *time.Time `json:"tcbs_connected_at"`
+	Role                 string     `json:"role"`
+	IsActive             bool       `json:"is_active"`
+	IsBanned             bool       `json:"is_banned"`
+	BanReason            string     `json:"ban_reason"`
+	LastLoginAt          *time.Time `json:"last_login_at"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
 // UserProfileInput is used for creating/updating user profiles
 type UserProfileInput struct {
-	Email            string `json:"email,omitempty"`
-	PhoneNumber      string `json:"phone_number,omitempty"`
-	FullName         string `json:"full_name,omitempty"`
-	Nickname         string `json:"nickname,omitempty"`
-	AvatarURL        string `json:"avatar_url,omitempty"`
-	SubscriptionPlan string `json:"subscription_plan,omitempty"`
-	SubscriptionEnd  string `json:"subscription_end,omitempty"`
-	IsActive         *bool  `json:"is_active,omitempty"`
-	IsBanned         *bool  `json:"is_banned,omitempty"`
-	BanReason        string `json:"ban_reason,omitempty"`
+	Email                string `json:"email,omitempty"`
+	PhoneNumber          string `json:"phone_number,omitempty"`
+	FullName             string `json:"full_name,omitempty"`
+	Nickname             string `json:"nickname,omitempty"`
+	StockAccountNumber   string `json:"stock_account_number,omitempty"`
+	AvatarURL            string `json:"avatar_url,omitempty"`
+	ZaloID               string `json:"zalo_id,omitempty"`
+	Birthday             string `json:"birthday,omitempty"`
+	Gender               string `json:"gender,omitempty"`
+	Provider             string `json:"provider,omitempty"`
+	ProviderID           string `json:"provider_id,omitempty"`
+	Membership           string `json:"membership,omitempty"` // free, basic, premium, enterprise
+	MembershipExpiresAt  string `json:"membership_expires_at,omitempty"`
+	TcbsAPIKey           string `json:"tcbs_api_key,omitempty"`
+	Role                 string `json:"role,omitempty"`
+	IsActive             *bool  `json:"is_active,omitempty"`
+	IsBanned             *bool  `json:"is_banned,omitempty"`
+	BanReason            string `json:"ban_reason,omitempty"`
 }
 
 // ProfilesListResponse contains paginated profiles results
@@ -249,11 +266,35 @@ func (c *SupabaseDBClient) UpdateProfile(id string, input *UserProfileInput) (*U
 	if input.AvatarURL != "" {
 		updateData["avatar_url"] = input.AvatarURL
 	}
-	if input.SubscriptionPlan != "" {
-		updateData["subscription_plan"] = input.SubscriptionPlan
+	if input.StockAccountNumber != "" {
+		updateData["stock_account_number"] = input.StockAccountNumber
 	}
-	if input.SubscriptionEnd != "" {
-		updateData["subscription_end"] = input.SubscriptionEnd
+	if input.ZaloID != "" {
+		updateData["zalo_id"] = input.ZaloID
+	}
+	if input.Birthday != "" {
+		updateData["birthday"] = input.Birthday
+	}
+	if input.Gender != "" {
+		updateData["gender"] = input.Gender
+	}
+	if input.Provider != "" {
+		updateData["provider"] = input.Provider
+	}
+	if input.ProviderID != "" {
+		updateData["provider_id"] = input.ProviderID
+	}
+	if input.Membership != "" {
+		updateData["membership"] = input.Membership
+	}
+	if input.MembershipExpiresAt != "" {
+		updateData["membership_expires_at"] = input.MembershipExpiresAt
+	}
+	if input.TcbsAPIKey != "" {
+		updateData["tcbs_api_key"] = input.TcbsAPIKey
+	}
+	if input.Role != "" {
+		updateData["role"] = input.Role
 	}
 	if input.IsActive != nil {
 		updateData["is_active"] = *input.IsActive
@@ -313,20 +354,25 @@ func (c *SupabaseDBClient) CreateProfile(id string, input *UserProfileInput) (*U
 	queryURL := fmt.Sprintf("%s/rest/v1/profiles", c.URL)
 
 	profileData := map[string]interface{}{
-		"id":                id,
-		"email":             input.Email,
-		"phone_number":      input.PhoneNumber,
-		"full_name":         input.FullName,
-		"nickname":          input.Nickname,
-		"subscription_plan": "free",
-		"is_active":         true,
-		"is_banned":         false,
-		"created_at":        time.Now().UTC().Format(time.RFC3339),
-		"updated_at":        time.Now().UTC().Format(time.RFC3339),
+		"id":           id,
+		"email":        input.Email,
+		"phone_number": input.PhoneNumber,
+		"full_name":    input.FullName,
+		"nickname":     input.Nickname,
+		"membership":   "free",
+		"role":         "user",
+		"provider":     "email",
+		"is_active":    true,
+		"is_banned":    false,
+		"created_at":   time.Now().UTC().Format(time.RFC3339),
+		"updated_at":   time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if input.SubscriptionPlan != "" {
-		profileData["subscription_plan"] = input.SubscriptionPlan
+	if input.Membership != "" {
+		profileData["membership"] = input.Membership
+	}
+	if input.Role != "" {
+		profileData["role"] = input.Role
 	}
 
 	payload, err := json.Marshal(profileData)
@@ -449,13 +495,13 @@ func (c *SupabaseDBClient) UnbanUser(id string) error {
 	return err
 }
 
-// UpdateSubscription updates user's subscription plan
+// UpdateSubscription updates user's membership plan
 func (c *SupabaseDBClient) UpdateSubscription(id, plan string, endDate *time.Time) error {
 	input := &UserProfileInput{
-		SubscriptionPlan: plan,
+		Membership: plan,
 	}
 	if endDate != nil {
-		input.SubscriptionEnd = endDate.Format(time.RFC3339)
+		input.MembershipExpiresAt = endDate.Format(time.RFC3339)
 	}
 	_, err := c.UpdateProfile(id, input)
 	return err

@@ -240,11 +240,11 @@
                                             </td>
                                             <td>{{ if .PhoneNumber }}{{ .PhoneNumber }}{{ else }}<span class="text-muted">-</span>{{ end }}</td>
                                             <td>
-                                                {{ if eq .SubscriptionPlan "enterprise" }}
+                                                {{ if eq .Membership "enterprise" }}
                                                 <span class="badge badge-enterprise">Enterprise</span>
-                                                {{ else if eq .SubscriptionPlan "premium" }}
+                                                {{ else if eq .Membership "premium" }}
                                                 <span class="badge badge-premium">Premium</span>
-                                                {{ else if eq .SubscriptionPlan "basic" }}
+                                                {{ else if eq .Membership "basic" }}
                                                 <span class="badge badge-basic">Basic</span>
                                                 {{ else }}
                                                 <span class="badge badge-free">Free</span>
@@ -273,7 +273,7 @@
                                                         <i class="bi bi-pencil"></i>
                                                     </button>
                                                     <button class="btn btn-sm btn-outline-info action-btn"
-                                                            onclick="editSubscription('{{ .ID }}', '{{ .SubscriptionPlan }}')" title="Subscription">
+                                                            onclick="editSubscription('{{ .ID }}', '{{ .Membership }}')" title="Subscription">
                                                         <i class="bi bi-credit-card"></i>
                                                     </button>
                                                     <button class="btn btn-sm btn-outline-secondary action-btn"
@@ -375,7 +375,7 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Subscription Plan</label>
-                            <select class="form-select" name="subscription_plan">
+                            <select class="form-select" name="membership">
                                 <option value="free">Free</option>
                                 <option value="basic">Basic</option>
                                 <option value="premium">Premium</option>
@@ -570,7 +570,7 @@
                 full_name: form.full_name.value,
                 nickname: form.nickname.value,
                 phone_number: form.phone_number.value,
-                subscription_plan: form.subscription_plan.value
+                membership: form.membership.value
             };
 
             $.ajax({
@@ -613,7 +613,7 @@
                                 <tr><th>Full Name</th><td>${p.full_name || '-'}</td></tr>
                                 <tr><th>Nickname</th><td>${p.nickname || '-'}</td></tr>
                                 <tr><th>Phone</th><td>${p.phone_number || '-'}</td></tr>
-                                <tr><th>Plan</th><td><span class="badge badge-${p.subscription_plan || 'free'}">${p.subscription_plan || 'free'}</span></td></tr>
+                                <tr><th>Plan</th><td><span class="badge badge-${p.membership || 'free'}">${p.membership || 'free'}</span></td></tr>
                                 <tr><th>Status</th><td>${p.is_banned ? '<span class="badge bg-danger">Banned</span>' : (p.is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>')}</td></tr>
                                 ${p.ban_reason ? '<tr><th>Ban Reason</th><td class="text-danger">' + p.ban_reason + '</td></tr>' : ''}
                                 <tr><th>Created</th><td>${new Date(p.created_at).toLocaleString()}</td></tr>
