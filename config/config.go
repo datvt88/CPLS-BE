@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"time"
 
@@ -71,13 +72,15 @@ func InitDB() (*gorm.DB, error) {
 
 	log.Printf("Connecting to database...")
 
-	// Standard PostgreSQL DSN for Supabase with timeout
+	// Use URL format for DSN to handle special characters in password
+	// Format: postgres://user:password@host:port/dbname?sslmode=require
+	encodedPassword := url.QueryEscape(AppConfig.DBPassword)
 	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=require connect_timeout=5",
+		"postgres://%s:%s@%s:%s/%s?sslmode=require&connect_timeout=5",
+		AppConfig.DBUser,
+		encodedPassword,
 		AppConfig.DBHost,
 		AppConfig.DBPort,
-		AppConfig.DBUser,
-		AppConfig.DBPassword,
 		AppConfig.DBName,
 	)
 
