@@ -7,7 +7,9 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/cpls-be']
 
-  # Deploy to Cloud Run
+  # Deploy to Cloud Run with environment variables for Supabase
+  # Note: Set substitution variables in Cloud Build trigger or use Secret Manager
+  # Required substitutions: _DB_HOST, _DB_PASSWORD, _JWT_SECRET
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
     id: Deploy
     entrypoint: gcloud
@@ -23,5 +25,17 @@ steps:
       - '--cpu=1'
       - '--timeout=300'
       - '--port=8080'
+      - '--set-env-vars=ENVIRONMENT=production'
+      - '--set-env-vars=DB_HOST=${_DB_HOST}'
+      - '--set-env-vars=DB_PORT=5432'
+      - '--set-env-vars=DB_USER=postgres'
+      - '--set-env-vars=DB_PASSWORD=${_DB_PASSWORD}'
+      - '--set-env-vars=DB_NAME=postgres'
+      - '--set-env-vars=JWT_SECRET=${_JWT_SECRET}'
+
+substitutions:
+  _DB_HOST: 'db.xxxxxxxxxxxxx.supabase.co'
+  _DB_PASSWORD: ''
+  _JWT_SECRET: ''
 
 timeout: 900s
