@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 var globalDB *gorm.DB
 var globalScheduler *scheduler.Scheduler
 var globalAuthController *admin.AuthController
+var authControllerMutex sync.RWMutex
 
 func main() {
 	log.Println("=== CPLS Backend Starting ===")
@@ -72,7 +74,9 @@ func main() {
 
 	// Set up the auth controller setter callback for routes package
 	routes.AuthControllerSetter = func(ac *admin.AuthController) {
+		authControllerMutex.Lock()
 		globalAuthController = ac
+		authControllerMutex.Unlock()
 	}
 
 	// Setup initial admin routes before server starts (so /admin/login is always available)
@@ -235,12 +239,15 @@ func setupMaintenanceRoutes(router *gin.Engine) {
 // setupInitialAdminRoutes registers admin login routes before server starts
 // This ensures /admin/login is always available, even during DB initialization
 func setupInitialAdminRoutes(router *gin.Engine) {
-	admin := router.Group("/admin")
+	adminGroup := router.Group("/admin")
 	{
-		admin.GET("/login", func(c *gin.Context) {
+		adminGroup.GET("/login", func(c *gin.Context) {
 			// If auth controller is set (DB connected and routes initialized), use it
-			if globalAuthController != nil {
-				globalAuthController.LoginPage(c)
+			authControllerMutex.RLock()
+			ac := globalAuthController
+			authControllerMutex.RUnlock()
+			if ac != nil {
+				ac.LoginPage(c)
 				return
 			}
 			// DB is not yet connected, show initializing message
@@ -248,10 +255,13 @@ func setupInitialAdminRoutes(router *gin.Engine) {
 				"error": "System is initializing. Please wait a moment and refresh the page.",
 			})
 		})
-		admin.POST("/login", func(c *gin.Context) {
+		adminGroup.POST("/login", func(c *gin.Context) {
 			// If auth controller is set (DB connected and routes initialized), use it
-			if globalAuthController != nil {
-				globalAuthController.Login(c)
+			authControllerMutex.RLock()
+			ac := globalAuthController
+			authControllerMutex.RUnlock()
+			if ac != nil {
+				ac.Login(c)
 				return
 			}
 			// DB is not yet connected, cannot login
