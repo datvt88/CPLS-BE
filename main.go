@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
+	"go_backend_project/admin"
 	"go_backend_project/config"
 	"go_backend_project/models"
 	"go_backend_project/routes"
@@ -22,6 +24,8 @@ import (
 
 var globalDB *gorm.DB
 var globalScheduler *scheduler.Scheduler
+var globalAuthController *admin.AuthController
+var authControllerMutex sync.RWMutex
 
 func main() {
 	log.Println("=== CPLS Backend Starting ===")
@@ -67,6 +71,16 @@ func main() {
 			"message": "CPLS Backend API",
 		})
 	})
+
+	// Set up the auth controller setter callback for routes package
+	routes.AuthControllerSetter = func(ac *admin.AuthController) {
+		authControllerMutex.Lock()
+		globalAuthController = ac
+		authControllerMutex.Unlock()
+	}
+
+	// Setup initial admin routes before server starts (so /admin/login is always available)
+	setupInitialAdminRoutes(router)
 
 	// Start server IMMEDIATELY to respond to Cloud Run health checks
 	server := &http.Server{
@@ -212,19 +226,47 @@ func setupMaintenanceRoutes(router *gin.Engine) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 	})
 
+	// Note: admin login routes are registered in setupInitialAdminRoutes
+	// Only register the redirect route here
 	admin := router.Group("/admin")
 	{
 		admin.GET("", func(c *gin.Context) {
 			c.Redirect(http.StatusFound, "/admin/login")
 		})
-		admin.GET("/login", func(c *gin.Context) {
+	}
+}
+
+// setupInitialAdminRoutes registers admin login routes before server starts
+// This ensures /admin/login is always available, even during DB initialization
+func setupInitialAdminRoutes(router *gin.Engine) {
+	adminGroup := router.Group("/admin")
+	{
+		adminGroup.GET("/login", func(c *gin.Context) {
+			// If auth controller is set (DB connected and routes initialized), use it
+			authControllerMutex.RLock()
+			ac := globalAuthController
+			authControllerMutex.RUnlock()
+			if ac != nil {
+				ac.LoginPage(c)
+				return
+			}
+			// DB is not yet connected, show initializing message
 			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-				"error": "Database connection failed. Please check DB_HOST, DB_USER, DB_PASSWORD, DB_NAME environment variables.",
+				"error": "System is initializing. Please wait a moment and refresh the page.",
 			})
 		})
-		admin.POST("/login", func(c *gin.Context) {
+		adminGroup.POST("/login", func(c *gin.Context) {
+			// If auth controller is set (DB connected and routes initialized), use it
+			authControllerMutex.RLock()
+			ac := globalAuthController
+			authControllerMutex.RUnlock()
+			if ac != nil {
+				ac.Login(c)
+				return
+			}
+			// DB is not yet connected, cannot login
 			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-				"error": "Database connection failed. Cannot login at this time.",
+				"error": "System is initializing. Please wait a moment and try again.",
 			})
 		})
 	}
