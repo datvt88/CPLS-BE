@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -21,19 +20,13 @@ type Config struct {
 	DBPassword  string
 	DBName      string
 	JWTSecret   string
-	RedisHost   string
-	RedisPort   string
 	Environment string
 }
 
 var AppConfig *Config
 var DB *gorm.DB
 
-// LoadConfig loads environment variables
 func LoadConfig() (*Config, error) {
-	// Load .env file if it exists (ignored in production)
-	_ = godotenv.Load()
-
 	config := &Config{
 		Port:        getEnv("PORT", "8080"),
 		DBHost:      getEnv("DB_HOST", ""),
@@ -41,96 +34,74 @@ func LoadConfig() (*Config, error) {
 		DBUser:      getEnv("DB_USER", "postgres"),
 		DBPassword:  getEnv("DB_PASSWORD", ""),
 		DBName:      getEnv("DB_NAME", "postgres"),
-		JWTSecret:   getEnv("JWT_SECRET", ""),
-		RedisHost:   getEnv("REDIS_HOST", ""),
-		RedisPort:   getEnv("REDIS_PORT", "6379"),
-		Environment: getEnv("ENVIRONMENT", "development"),
+		JWTSecret:   getEnv("JWT_SECRET", "default-secret"),
+		Environment: getEnv("ENVIRONMENT", "production"),
 	}
 
-	// Log loaded config (masked)
-	log.Printf("Config loaded: ENV=%s, DB_HOST=%s, DB_PORT=%s, DB_USER=%s, DB_NAME=%s",
-		config.Environment,
-		maskString(config.DBHost),
-		config.DBPort,
-		config.DBUser,
-		config.DBName,
-	)
+	log.Printf("Config: PORT=%s, DB_HOST=%s, DB_USER=%s, DB_NAME=%s",
+		config.Port, maskStr(config.DBHost), config.DBUser, config.DBName)
 
 	AppConfig = config
 	return config, nil
 }
 
-// InitDB initializes database connection
 func InitDB() (*gorm.DB, error) {
-	// Validate required config
 	if AppConfig.DBHost == "" {
-		return nil, fmt.Errorf("DB_HOST is required")
+		return nil, fmt.Errorf("DB_HOST is empty")
 	}
 	if AppConfig.DBPassword == "" {
-		return nil, fmt.Errorf("DB_PASSWORD is required")
+		return nil, fmt.Errorf("DB_PASSWORD is empty")
 	}
 
-	log.Printf("Connecting to database...")
+	// URL encode password to handle special characters
+	encodedPass := url.QueryEscape(AppConfig.DBPassword)
 
-	// Use URL format for DSN to handle special characters in password
-	// Format: postgres://user:password@host:port/dbname?sslmode=require
-	encodedPassword := url.QueryEscape(AppConfig.DBPassword)
-	dsn := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=require&connect_timeout=5",
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=require",
 		AppConfig.DBUser,
-		encodedPassword,
+		encodedPass,
 		AppConfig.DBHost,
 		AppConfig.DBPort,
 		AppConfig.DBName,
 	)
 
-	// GORM config optimized for serverless
-	gormConfig := &gorm.Config{
-		Logger:                 logger.Default.LogMode(logger.Error),
-		PrepareStmt:            false,
-		SkipDefaultTransaction: true,
-	}
+	log.Println("Connecting to database...")
 
-	db, err := gorm.Open(postgres.Open(dsn), gormConfig)
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger:      logger.Default.LogMode(logger.Silent),
+		PrepareStmt: false,
+	})
 	if err != nil {
-		log.Printf("Database connection failed: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("gorm.Open failed: %w", err)
 	}
 
-	// Configure connection pool for Cloud Run
 	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("db.DB() failed: %w", err)
 	}
 
 	sqlDB.SetMaxIdleConns(2)
-	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxOpenConns(5)
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)
-	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
-	// Test connection
 	if err := sqlDB.Ping(); err != nil {
-		log.Printf("Database ping failed: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("ping failed: %w", err)
 	}
 
-	log.Println("Database connected successfully!")
+	log.Println("Database connected!")
 	DB = db
 	return db, nil
 }
 
-// maskString masks sensitive strings for logging
-func maskString(s string) string {
-	if len(s) <= 8 {
-		return "***"
+func getEnv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
-	return s[:4] + "***" + s[len(s)-4:]
+	return def
 }
 
-// getEnv gets environment variable or default
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func maskStr(s string) string {
+	if len(s) < 8 {
+		return "***"
 	}
-	return defaultValue
+	return s[:4] + "***"
 }
