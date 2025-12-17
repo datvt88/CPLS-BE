@@ -20,8 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-var db *gorm.DB
-var dbReady = false
+var globalDB *gorm.DB
 
 func main() {
 	log.Println("=== CPLS Backend Starting ===")
@@ -49,9 +48,13 @@ func main() {
 
 	// Health check - always available
 	router.GET("/health", func(c *gin.Context) {
+		dbStatus := "disconnected"
+		if globalDB != nil {
+			dbStatus = "connected"
+		}
 		c.JSON(200, gin.H{
-			"status":   "ok",
-			"db_ready": dbReady,
+			"status":    "ok",
+			"db_status": dbStatus,
 		})
 	})
 
@@ -62,10 +65,52 @@ func main() {
 		})
 	})
 
-	// Setup maintenance routes first
-	setupMaintenanceRoutes(router)
+	// Try to connect to database FIRST (with timeout)
+	log.Println("Attempting database connection...")
+	dbConnected := false
 
-	// Start server immediately in goroutine
+	// Create a channel to signal DB connection result
+	dbChan := make(chan *gorm.DB, 1)
+	go func() {
+		db, err := config.InitDB()
+		if err != nil {
+			log.Printf("Database connection failed: %v", err)
+			dbChan <- nil
+		} else {
+			dbChan <- db
+		}
+	}()
+
+	// Wait for DB connection with timeout (max 8 seconds to leave time for server startup)
+	select {
+	case db := <-dbChan:
+		if db != nil {
+			globalDB = db
+			dbConnected = true
+			log.Println("Database connected successfully!")
+		}
+	case <-time.After(8 * time.Second):
+		log.Println("Database connection timeout, starting without DB")
+	}
+
+	if dbConnected {
+		// Run migrations
+		log.Println("Running migrations...")
+		runMigrations(globalDB)
+
+		// Setup full routes
+		routes.SetupRoutes(router, globalDB)
+
+		// Start scheduler
+		sched := scheduler.NewScheduler(globalDB)
+		sched.Start()
+		defer sched.Stop()
+	} else {
+		// Setup maintenance routes only
+		setupMaintenanceRoutes(router)
+	}
+
+	// Start server
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%s", cfg.Port),
 		Handler: router,
@@ -78,12 +123,7 @@ func main() {
 		}
 	}()
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
-	log.Println("Server is now listening")
-
-	// Now try database connection (non-blocking for server)
-	go initDatabaseAndRoutes(router, cfg)
+	log.Println("=== Server is ready ===")
 
 	// Wait for shutdown signal
 	quit := make(chan os.Signal, 1)
@@ -96,50 +136,26 @@ func main() {
 	server.Shutdown(ctx)
 }
 
-func initDatabaseAndRoutes(router *gin.Engine, cfg *config.Config) {
-	log.Println("Attempting database connection...")
-
-	var err error
-	db, err = config.InitDB()
-	if err != nil {
-		log.Printf("Database connection failed: %v", err)
-		log.Println("Running in maintenance mode")
-		return
-	}
-
-	dbReady = true
-	log.Println("Database ready, running migrations...")
-
-	// Run migrations
+func runMigrations(db *gorm.DB) {
 	if err := models.MigrateStockModels(db); err != nil {
-		log.Printf("MigrateStockModels failed: %v", err)
+		log.Printf("MigrateStockModels: %v", err)
 	}
 	if err := models.MigrateTradingModels(db); err != nil {
-		log.Printf("MigrateTradingModels failed: %v", err)
+		log.Printf("MigrateTradingModels: %v", err)
 	}
 	if err := models.MigrateUserModels(db); err != nil {
-		log.Printf("MigrateUserModels failed: %v", err)
+		log.Printf("MigrateUserModels: %v", err)
 	}
 	if err := models.MigrateSubscriptionModels(db); err != nil {
-		log.Printf("MigrateSubscriptionModels failed: %v", err)
+		log.Printf("MigrateSubscriptionModels: %v", err)
 	}
 	if err := models.MigrateAdminModels(db); err != nil {
-		log.Printf("MigrateAdminModels failed: %v", err)
+		log.Printf("MigrateAdminModels: %v", err)
 	}
-
-	// Seed admin
 	if err := models.SeedDefaultAdminUser(db); err != nil {
-		log.Printf("SeedDefaultAdminUser failed: %v", err)
+		log.Printf("SeedDefaultAdminUser: %v", err)
 	}
-
-	// Setup full routes
-	routes.SetupRoutes(router, db)
-
-	// Start scheduler
-	sched := scheduler.NewScheduler(db)
-	sched.Start()
-
-	log.Println("=== Application fully initialized ===")
+	log.Println("Migrations completed")
 }
 
 func corsMiddleware() gin.HandlerFunc {
@@ -162,24 +178,18 @@ func setupMaintenanceRoutes(router *gin.Engine) {
 			c.Redirect(http.StatusFound, "/admin/login")
 		})
 		admin.GET("/login", func(c *gin.Context) {
-			if !dbReady {
-				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-					"error": "Database connection failed. Please check configuration.",
-				})
-				return
-			}
-			c.HTML(http.StatusOK, "login.html", nil)
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+				"error": "Database connection failed. Please check DB_HOST, DB_USER, DB_PASSWORD, DB_NAME environment variables.",
+			})
 		})
 		admin.POST("/login", func(c *gin.Context) {
-			if !dbReady {
-				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-					"error": "Database connection failed.",
-				})
-				return
-			}
-			c.HTML(http.StatusOK, "login.html", gin.H{
-				"error": "Please use the full routes after DB is ready.",
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+				"error": "Database connection failed. Cannot login at this time.",
 			})
+		})
+		// Catch all other admin routes
+		admin.GET("/*path", func(c *gin.Context) {
+			c.Redirect(http.StatusFound, "/admin/login")
 		})
 	}
 }
