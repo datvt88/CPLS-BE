@@ -47,16 +47,17 @@ func LoadConfig() (*Config, error) {
 
 func InitDB() (*gorm.DB, error) {
 	if AppConfig.DBHost == "" {
-		return nil, fmt.Errorf("DB_HOST is empty")
+		return nil, fmt.Errorf("DB_HOST is empty - please configure database connection")
 	}
 	if AppConfig.DBPassword == "" {
-		return nil, fmt.Errorf("DB_PASSWORD is empty")
+		return nil, fmt.Errorf("DB_PASSWORD is empty - please configure database password")
 	}
 
 	// URL encode password to handle special characters
 	encodedPass := url.QueryEscape(AppConfig.DBPassword)
 
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=require",
+	// Add connection timeout parameters for faster failure detection
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=require&connect_timeout=10",
 		AppConfig.DBUser,
 		encodedPass,
 		AppConfig.DBHost,
@@ -69,6 +70,8 @@ func InitDB() (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger:      logger.Default.LogMode(logger.Silent),
 		PrepareStmt: false,
+		// Skip default transaction for better performance
+		SkipDefaultTransaction: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gorm.Open failed: %w", err)
@@ -79,9 +82,11 @@ func InitDB() (*gorm.DB, error) {
 		return nil, fmt.Errorf("db.DB() failed: %w", err)
 	}
 
-	sqlDB.SetMaxIdleConns(2)
-	sqlDB.SetMaxOpenConns(5)
-	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	// Optimized connection pool settings for cloud environments
+	sqlDB.SetMaxIdleConns(5)                   // Increase idle connections for faster reuse
+	sqlDB.SetMaxOpenConns(10)                  // Allow more concurrent connections
+	sqlDB.SetConnMaxLifetime(15 * time.Minute) // Shorter lifetime for cloud environments
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)  // Close idle connections after 5 minutes
 
 	if err := sqlDB.Ping(); err != nil {
 		return nil, fmt.Errorf("ping failed: %w", err)
