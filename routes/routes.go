@@ -2,9 +2,11 @@ package routes
 
 import (
 	"net/http"
+	"os"
 
 	"go_backend_project/admin"
 	"go_backend_project/controllers"
+	"go_backend_project/middleware"
 	"go_backend_project/models"
 	"go_backend_project/services/trading"
 
@@ -38,10 +40,22 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 		AuthControllerSetter(authController)
 	}
 
+	// Check if API auth is required (can be configured via environment)
+	requireAPIAuth := os.Getenv("REQUIRE_API_AUTH") == "true"
+
 	// API v1 group
 	api := router.Group("/api/v1")
+
+	// Apply optional JWT middleware to allow both authenticated and anonymous access
+	// If REQUIRE_API_AUTH is true, use strict JWT middleware
+	if requireAPIAuth {
+		api.Use(middleware.JWTAuthMiddleware())
+	} else {
+		api.Use(middleware.OptionalJWTAuthMiddleware())
+	}
+
 	{
-		// Database health check endpoint
+		// Database health check endpoint (always public)
 		api.GET("/health/db", func(c *gin.Context) {
 			sqlDB, err := db.DB()
 			if err != nil {
@@ -69,6 +83,29 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 				"message":      "Database connection successful",
 				"admin_users":  adminCount,
 				"db_connected": true,
+			})
+		})
+
+		// Auth info endpoint - returns current authentication status
+		api.GET("/auth/me", func(c *gin.Context) {
+			authenticated, exists := c.Get("authenticated")
+			if !exists || !authenticated.(bool) {
+				c.JSON(http.StatusOK, gin.H{
+					"authenticated": false,
+					"message":       "Not authenticated",
+				})
+				return
+			}
+
+			userID, _ := c.Get("user_id")
+			email, _ := c.Get("user_email")
+			role, _ := c.Get("user_role")
+
+			c.JSON(http.StatusOK, gin.H{
+				"authenticated": true,
+				"user_id":       userID,
+				"email":         email,
+				"role":          role,
 			})
 		})
 
