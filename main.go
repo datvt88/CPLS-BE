@@ -29,13 +29,14 @@ var authControllerMutex sync.RWMutex
 
 // InitStatus tracks the initialization state of the application
 type InitStatus struct {
-	mu           sync.RWMutex
-	isReady      bool
-	dbConnected  bool
-	message      string
-	startTime    time.Time
-	lastError    string
-	retryCount   int
+	mu              sync.RWMutex
+	isReady         bool
+	dbConnected     bool
+	maintenanceMode bool
+	message         string
+	startTime       time.Time
+	lastError       string
+	retryCount      int
 }
 
 var initStatus = &InitStatus{
@@ -70,6 +71,12 @@ func (s *InitStatus) SetError(err string) {
 	s.lastError = err
 }
 
+func (s *InitStatus) SetMaintenanceMode(maintenance bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maintenanceMode = maintenance
+}
+
 func (s *InitStatus) IncrementRetry() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -77,10 +84,13 @@ func (s *InitStatus) IncrementRetry() int {
 	return s.retryCount
 }
 
-func (s *InitStatus) GetStatus() (ready bool, dbConnected bool, msg string, elapsed time.Duration, lastErr string, retries int) {
+// MaintenanceModeMessage is the message shown when system is in maintenance mode
+const MaintenanceModeMessage = "Database is unavailable. System is running in maintenance mode. Please contact the administrator."
+
+func (s *InitStatus) GetStatus() (ready bool, dbConnected bool, msg string, elapsed time.Duration, lastErr string, retries int, maintenanceMode bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.isReady, s.dbConnected, s.message, time.Since(s.startTime), s.lastError, s.retryCount
+	return s.isReady, s.dbConnected, s.message, time.Since(s.startTime), s.lastError, s.retryCount, s.maintenanceMode
 }
 
 func main() {
@@ -111,11 +121,13 @@ func main() {
 
 	// Health check - always available (responds immediately for Cloud Run health checks)
 	router.GET("/health", func(c *gin.Context) {
-		ready, dbConnected, msg, elapsed, lastErr, retries := initStatus.GetStatus()
+		ready, dbConnected, msg, elapsed, lastErr, retries, maintenanceMode := initStatus.GetStatus()
 		
 		status := "initializing"
 		if ready {
 			status = "ready"
+		} else if maintenanceMode {
+			status = "maintenance"
 		} else if lastErr != "" {
 			status = "error"
 		}
@@ -126,17 +138,18 @@ func main() {
 		}
 		
 		c.JSON(200, gin.H{
-			"status":      status,
-			"db_status":   dbStatus,
-			"message":     msg,
-			"uptime_sec":  int(elapsed.Seconds()),
-			"retries":     retries,
+			"status":           status,
+			"db_status":        dbStatus,
+			"message":          msg,
+			"uptime_sec":       int(elapsed.Seconds()),
+			"retries":          retries,
+			"maintenance_mode": maintenanceMode,
 		})
 	})
 	
 	// Readiness check endpoint - returns 200 only when fully ready
 	router.GET("/ready", func(c *gin.Context) {
-		ready, _, _, _, _, _ := initStatus.GetStatus()
+		ready, _, _, _, _, _, _ := initStatus.GetStatus()
 		if ready {
 			c.JSON(200, gin.H{"status": "ready"})
 		} else {
@@ -239,6 +252,7 @@ func initializeApp(router *gin.Engine) {
 	} else {
 		initStatus.SetMessage("Running in maintenance mode (database unavailable)")
 		initStatus.SetError("Failed to connect to database after retries")
+		initStatus.SetMaintenanceMode(true)
 		
 		// Setup maintenance routes only
 		setupMaintenanceRoutes(router)
@@ -347,14 +361,15 @@ func setupInitialAdminRoutes(router *gin.Engine) {
 	{
 		// Status endpoint for AJAX polling during initialization
 		adminGroup.GET("/status", func(c *gin.Context) {
-			ready, dbConnected, msg, elapsed, lastErr, retries := initStatus.GetStatus()
+			ready, dbConnected, msg, elapsed, lastErr, retries, maintenanceMode := initStatus.GetStatus()
 			c.JSON(200, gin.H{
-				"ready":        ready,
-				"db_connected": dbConnected,
-				"message":      msg,
-				"uptime_sec":   int(elapsed.Seconds()),
-				"last_error":   lastErr,
-				"retries":      retries,
+				"ready":            ready,
+				"db_connected":     dbConnected,
+				"maintenance_mode": maintenanceMode,
+				"message":          msg,
+				"uptime_sec":       int(elapsed.Seconds()),
+				"last_error":       lastErr,
+				"retries":          retries,
 			})
 		})
 		
@@ -368,7 +383,17 @@ func setupInitialAdminRoutes(router *gin.Engine) {
 				return
 			}
 			// DB is not yet connected, show initializing message with status info
-			ready, _, msg, elapsed, lastErr, retries := initStatus.GetStatus()
+			ready, _, msg, elapsed, lastErr, retries, maintenanceMode := initStatus.GetStatus()
+			
+			// If in maintenance mode, show a clear maintenance message and stop polling
+			if maintenanceMode {
+				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+					"error":           MaintenanceModeMessage,
+					"maintenanceMode": true,
+					"initializing":    false,
+				})
+				return
+			}
 			
 			errorMsg := fmt.Sprintf("System is initializing... (%s)", msg)
 			if lastErr != "" && retries > 0 {
@@ -393,7 +418,18 @@ func setupInitialAdminRoutes(router *gin.Engine) {
 				return
 			}
 			// DB is not yet connected, cannot login
-			_, _, msg, _, _, _ := initStatus.GetStatus()
+			_, _, msg, _, _, _, maintenanceMode := initStatus.GetStatus()
+			
+			// If in maintenance mode, show maintenance error
+			if maintenanceMode {
+				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+					"error":           MaintenanceModeMessage,
+					"maintenanceMode": true,
+					"initializing":    false,
+				})
+				return
+			}
+			
 			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
 				"error":        fmt.Sprintf("System is initializing. Please wait... (%s)", msg),
 				"initializing": true,
