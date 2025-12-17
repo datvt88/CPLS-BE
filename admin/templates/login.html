@@ -128,9 +128,15 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     {{ if .initializing }}
     <script>
-        // Poll for initialization status
-        let pollInterval = 3000; // Start with 3 seconds
-        let maxPollInterval = 10000; // Max 10 seconds
+        // Polling configuration constants
+        const POLL_CONFIG = {
+            initialInterval: 3000,    // Start with 3 seconds
+            maxInterval: 10000,       // Max 10 seconds
+            backoffIncrement: 1000,   // Increase by 1 second each poll
+            initialDelay: 2000        // Wait 2 seconds before first poll
+        };
+        
+        let pollInterval = POLL_CONFIG.initialInterval;
         
         function checkStatus() {
             fetch('/admin/status')
@@ -149,19 +155,19 @@
                             }
                         }
                         // Schedule next poll with slight backoff
-                        pollInterval = Math.min(pollInterval + 1000, maxPollInterval);
+                        pollInterval = Math.min(pollInterval + POLL_CONFIG.backoffIncrement, POLL_CONFIG.maxInterval);
                         setTimeout(checkStatus, pollInterval);
                     }
                 })
                 .catch(error => {
                     console.error('Status check failed:', error);
                     // Retry after a longer delay on error
-                    setTimeout(checkStatus, maxPollInterval);
+                    setTimeout(checkStatus, POLL_CONFIG.maxInterval);
                 });
         }
         
         // Start polling after a short delay
-        setTimeout(checkStatus, 2000);
+        setTimeout(checkStatus, POLL_CONFIG.initialDelay);
     </script>
     {{ end }}
 </body>

@@ -246,14 +246,19 @@ func initializeApp(router *gin.Engine) {
 	}
 }
 
+// Database connection constants
+const (
+	maxDelayBetweenRetries = 30 * time.Second
+)
+
 // connectDBWithRetry attempts to connect to the database with exponential backoff
 func connectDBWithRetry(maxRetries int, initialDelay time.Duration) *gorm.DB {
 	delay := initialDelay
 	
-	for i := 0; i < maxRetries; i++ {
-		retryNum := initStatus.IncrementRetry()
-		log.Printf("Database connection attempt %d/%d...", retryNum, maxRetries)
-		initStatus.SetMessage(fmt.Sprintf("Connecting to database (attempt %d/%d)...", retryNum, maxRetries))
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		initStatus.IncrementRetry()
+		log.Printf("Database connection attempt %d/%d...", attempt, maxRetries)
+		initStatus.SetMessage(fmt.Sprintf("Connecting to database (attempt %d/%d)...", attempt, maxRetries))
 		
 		db, err := config.InitDB()
 		if err == nil {
@@ -261,16 +266,16 @@ func connectDBWithRetry(maxRetries int, initialDelay time.Duration) *gorm.DB {
 			return db
 		}
 		
-		log.Printf("Database connection failed (attempt %d): %v", retryNum, err)
+		log.Printf("Database connection failed (attempt %d): %v", attempt, err)
 		initStatus.SetError(err.Error())
 		
-		if i < maxRetries-1 {
+		if attempt < maxRetries {
 			log.Printf("Retrying in %v...", delay)
 			initStatus.SetMessage(fmt.Sprintf("Connection failed, retrying in %v...", delay))
 			time.Sleep(delay)
 			delay = delay * 2 // Exponential backoff
-			if delay > 30*time.Second {
-				delay = 30 * time.Second // Cap at 30 seconds
+			if delay > maxDelayBetweenRetries {
+				delay = maxDelayBetweenRetries
 			}
 		}
 	}
