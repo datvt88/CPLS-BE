@@ -92,11 +92,6 @@ func InitDB() (*gorm.DB, error) {
 		AppConfig.DBPort,
 	)
 
-	// Add prepared statements disable for transaction pooler mode
-	if AppConfig.UsePooler {
-		dsn += " statement_cache_mode=describe"
-	}
-
 	log.Printf("DSN configured (password hidden)")
 
 	var logLevel logger.LogLevel
