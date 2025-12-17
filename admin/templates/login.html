@@ -55,58 +55,6 @@
         .form-control {
             border-radius: 0 8px 8px 0;
         }
-        .alert-initializing {
-            background-color: #fff3cd;
-            border-color: #ffc107;
-            color: #856404;
-        }
-        .alert-maintenance {
-            background-color: #f8d7da;
-            border-color: #f5c6cb;
-            color: #721c24;
-        }
-        .spinner-border-sm {
-            width: 1rem;
-            height: 1rem;
-        }
-        .status-message {
-            font-size: 0.875rem;
-            margin-top: 5px;
-        }
-        .login-method-tabs {
-            display: flex;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #e9ecef;
-        }
-        .login-method-tab {
-            flex: 1;
-            padding: 10px 15px;
-            text-align: center;
-            cursor: pointer;
-            color: #6c757d;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-            transition: all 0.2s;
-        }
-        .login-method-tab:hover {
-            color: #3498db;
-        }
-        .login-method-tab.active {
-            color: #3498db;
-            border-bottom-color: #3498db;
-            font-weight: 600;
-        }
-        .supabase-info {
-            background: #e8f4f8;
-            border-radius: 8px;
-            padding: 10px;
-            font-size: 0.85rem;
-            color: #2c3e50;
-            margin-bottom: 15px;
-        }
-        .supabase-info i {
-            color: #3498db;
-        }
     </style>
 </head>
 <body>
@@ -116,65 +64,18 @@
             <p>Vietnamese Stock Trading System</p>
         </div>
 
-        {{ if .maintenanceMode }}
-        <div class="alert alert-maintenance" role="alert" aria-label="System maintenance mode alert">
-            <div class="d-flex align-items-center">
-                <i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>
-                <div>
-                    <strong>Maintenance Mode</strong>
-                    <div class="status-message">{{ .error }}</div>
-                </div>
-            </div>
-        </div>
-        {{ else if .initializing }}
-        <div class="alert alert-initializing" role="alert" id="init-alert">
-            <div class="d-flex align-items-center">
-                <div class="spinner-border spinner-border-sm me-2" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <div>
-                    <strong>System is initializing...</strong>
-                    <div class="status-message" id="status-message">{{ .error }}</div>
-                </div>
-            </div>
-            <div class="mt-2">
-                <small class="text-muted">Page will refresh automatically when ready.</small>
-            </div>
-        </div>
-        {{ else if .error }}
+        {{ if .error }}
         <div class="alert alert-danger" role="alert">
             <i class="bi bi-exclamation-circle"></i> {{ .error }}
         </div>
         {{ end }}
 
         <form method="POST" action="/admin/login" id="login-form">
-            {{ if .supabaseEnabled }}
-            <div class="login-method-tabs">
-                <div class="login-method-tab active" data-method="local" onclick="switchLoginMethod('local')">
-                    <i class="bi bi-person-badge"></i> Local Admin
-                </div>
-                <div class="login-method-tab" data-method="supabase" onclick="switchLoginMethod('supabase')">
-                    <i class="bi bi-cloud"></i> Supabase
-                </div>
-            </div>
-            <input type="hidden" name="login_method" id="login_method" value="local">
-            {{ end }}
-
-            <div id="local-info" class="supabase-info" style="display: none;">
-                <i class="bi bi-info-circle"></i> Login with your local admin username and password.
-            </div>
-
-            {{ if .supabaseEnabled }}
-            <div id="supabase-info" class="supabase-info" style="display: none;">
-                <i class="bi bi-info-circle"></i> Login with your Supabase account email. Requires admin role in app_metadata.
-            </div>
-            {{ end }}
-
             <div class="mb-3">
-                <label class="form-label" id="username-label">Username</label>
+                <label class="form-label">Username</label>
                 <div class="input-group">
-                    <span class="input-group-text"><i class="bi bi-person" id="username-icon"></i></span>
-                    <input type="text" class="form-control" name="username" id="username-input" placeholder="Enter username" required autofocus {{ if or .initializing .maintenanceMode }}disabled{{ end }}>
+                    <span class="input-group-text"><i class="bi bi-person"></i></span>
+                    <input type="text" class="form-control" name="username" placeholder="Enter username" required autofocus>
                 </div>
             </div>
 
@@ -182,11 +83,11 @@
                 <label class="form-label">Password</label>
                 <div class="input-group">
                     <span class="input-group-text"><i class="bi bi-key"></i></span>
-                    <input type="password" class="form-control" name="password" placeholder="Enter password" required {{ if or .initializing .maintenanceMode }}disabled{{ end }}>
+                    <input type="password" class="form-control" name="password" placeholder="Enter password" required>
                 </div>
             </div>
 
-            <button type="submit" class="btn btn-primary btn-login" id="submit-btn" {{ if or .initializing .maintenanceMode }}disabled{{ end }}>
+            <button type="submit" class="btn btn-primary btn-login">
                 <i class="bi bi-box-arrow-in-right"></i> Sign In
             </button>
         </form>
@@ -197,102 +98,5 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        function switchLoginMethod(method) {
-            // Update tabs
-            document.querySelectorAll('.login-method-tab').forEach(tab => {
-                tab.classList.remove('active');
-                if (tab.dataset.method === method) {
-                    tab.classList.add('active');
-                }
-            });
-
-            // Update hidden input
-            const loginMethodInput = document.getElementById('login_method');
-            if (loginMethodInput) {
-                loginMethodInput.value = method;
-            }
-
-            // Update form labels and placeholders
-            const usernameLabel = document.getElementById('username-label');
-            const usernameInput = document.getElementById('username-input');
-            const usernameIcon = document.getElementById('username-icon');
-            const localInfo = document.getElementById('local-info');
-            const supabaseInfo = document.getElementById('supabase-info');
-
-            if (method === 'supabase') {
-                if (usernameLabel) usernameLabel.textContent = 'Email';
-                if (usernameInput) {
-                    usernameInput.placeholder = 'Enter email address';
-                    usernameInput.type = 'email';
-                }
-                if (usernameIcon) {
-                    usernameIcon.classList.remove('bi-person');
-                    usernameIcon.classList.add('bi-envelope');
-                }
-                if (localInfo) localInfo.style.display = 'none';
-                if (supabaseInfo) supabaseInfo.style.display = 'block';
-            } else {
-                if (usernameLabel) usernameLabel.textContent = 'Username';
-                if (usernameInput) {
-                    usernameInput.placeholder = 'Enter username';
-                    usernameInput.type = 'text';
-                }
-                if (usernameIcon) {
-                    usernameIcon.classList.remove('bi-envelope');
-                    usernameIcon.classList.add('bi-person');
-                }
-                if (localInfo) localInfo.style.display = 'none';
-                if (supabaseInfo) supabaseInfo.style.display = 'none';
-            }
-        }
-    </script>
-    {{ if .initializing }}
-    <script>
-        // Polling configuration constants
-        const POLL_CONFIG = {
-            initialInterval: 3000,    // Start with 3 seconds
-            maxInterval: 10000,       // Max 10 seconds
-            backoffIncrement: 1000,   // Increase by 1 second each poll
-            initialDelay: 2000        // Wait 2 seconds before first poll
-        };
-        
-        let pollInterval = POLL_CONFIG.initialInterval;
-        
-        function checkStatus() {
-            fetch('/admin/status')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.ready) {
-                        // System is ready, reload the page
-                        window.location.reload();
-                    } else if (data.maintenance_mode) {
-                        // System entered maintenance mode, reload to show maintenance message
-                        window.location.reload();
-                    } else {
-                        // Update status message
-                        const statusEl = document.getElementById('status-message');
-                        if (statusEl && data.message) {
-                            statusEl.textContent = data.message;
-                            if (data.last_error) {
-                                statusEl.textContent += ' (Last error: ' + data.last_error + ')';
-                            }
-                        }
-                        // Schedule next poll with slight backoff
-                        pollInterval = Math.min(pollInterval + POLL_CONFIG.backoffIncrement, POLL_CONFIG.maxInterval);
-                        setTimeout(checkStatus, pollInterval);
-                    }
-                })
-                .catch(error => {
-                    console.error('Status check failed:', error);
-                    // Retry after a longer delay on error
-                    setTimeout(checkStatus, POLL_CONFIG.maxInterval);
-                });
-        }
-        
-        // Start polling after a short delay
-        setTimeout(checkStatus, POLL_CONFIG.initialDelay);
-    </script>
-    {{ end }}
 </body>
 </html>
