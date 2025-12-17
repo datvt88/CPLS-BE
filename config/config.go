@@ -71,9 +71,9 @@ func InitDB() (*gorm.DB, error) {
 
 	log.Printf("Connecting to database...")
 
-	// Standard PostgreSQL DSN for Supabase
+	// Standard PostgreSQL DSN for Supabase with timeout
 	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=require",
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=require connect_timeout=5",
 		AppConfig.DBHost,
 		AppConfig.DBPort,
 		AppConfig.DBUser,

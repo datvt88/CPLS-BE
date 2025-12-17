@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.24-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git
@@ -8,9 +8,6 @@ WORKDIR /app
 
 # Copy go mod files
 COPY go.mod go.sum ./
-
-# Set GOTOOLCHAIN to avoid version conflicts
-ENV GOTOOLCHAIN=local
 
 # Download dependencies
 RUN go mod download
