@@ -13,19 +13,16 @@ import (
 )
 
 type Config struct {
-	Port          string
-	DBHost        string
-	DBPort        string
-	DBUser        string
-	DBPassword    string
-	DBName        string
-	JWTSecret     string
-	RedisHost     string
-	RedisPort     string
-	Environment   string
-	// Supabase specific
-	SupabaseProjectRef string
-	UsePooler          bool
+	Port        string
+	DBHost      string
+	DBPort      string
+	DBUser      string
+	DBPassword  string
+	DBName      string
+	JWTSecret   string
+	RedisHost   string
+	RedisPort   string
+	Environment string
 }
 
 var AppConfig *Config
@@ -33,29 +30,30 @@ var DB *gorm.DB
 
 // LoadConfig loads environment variables
 func LoadConfig() (*Config, error) {
-	// Load .env file if it exists
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
-	}
-
-	// Check if using Supabase pooler
-	usePooler := getEnv("USE_POOLER", "true") == "true"
-	supabaseRef := getEnv("SUPABASE_PROJECT_REF", "")
+	// Load .env file if it exists (ignored in production)
+	_ = godotenv.Load()
 
 	config := &Config{
-		Port:               getEnv("PORT", "8080"),
-		DBHost:             getEnv("DB_HOST", "localhost"),
-		DBPort:             getEnv("DB_PORT", "5432"),
-		DBUser:             getEnv("DB_USER", "postgres"),
-		DBPassword:         getEnv("DB_PASSWORD", ""),
-		DBName:             getEnv("DB_NAME", "postgres"),
-		JWTSecret:          getEnv("JWT_SECRET", "your-secret-key"),
-		RedisHost:          getEnv("REDIS_HOST", "localhost"),
-		RedisPort:          getEnv("REDIS_PORT", "6379"),
-		Environment:        getEnv("ENVIRONMENT", "development"),
-		SupabaseProjectRef: supabaseRef,
-		UsePooler:          usePooler,
+		Port:        getEnv("PORT", "8080"),
+		DBHost:      getEnv("DB_HOST", ""),
+		DBPort:      getEnv("DB_PORT", "5432"),
+		DBUser:      getEnv("DB_USER", "postgres"),
+		DBPassword:  getEnv("DB_PASSWORD", ""),
+		DBName:      getEnv("DB_NAME", "postgres"),
+		JWTSecret:   getEnv("JWT_SECRET", ""),
+		RedisHost:   getEnv("REDIS_HOST", ""),
+		RedisPort:   getEnv("REDIS_PORT", "6379"),
+		Environment: getEnv("ENVIRONMENT", "development"),
 	}
+
+	// Log loaded config (masked)
+	log.Printf("Config loaded: ENV=%s, DB_HOST=%s, DB_PORT=%s, DB_USER=%s, DB_NAME=%s",
+		config.Environment,
+		maskString(config.DBHost),
+		config.DBPort,
+		config.DBUser,
+		config.DBName,
+	)
 
 	AppConfig = config
 	return config, nil
@@ -63,95 +61,73 @@ func LoadConfig() (*Config, error) {
 
 // InitDB initializes database connection
 func InitDB() (*gorm.DB, error) {
-	// Validate required configuration
-	if AppConfig.DBHost == "" || AppConfig.DBHost == "localhost" {
-		log.Printf("WARNING: DB_HOST is '%s'. For production, set DB_HOST environment variable to your Supabase/Cloud SQL host", AppConfig.DBHost)
+	// Validate required config
+	if AppConfig.DBHost == "" {
+		return nil, fmt.Errorf("DB_HOST is required")
 	}
 	if AppConfig.DBPassword == "" {
-		log.Printf("ERROR: DB_PASSWORD is empty. Database connection will fail.")
-		return nil, fmt.Errorf("DB_PASSWORD environment variable is required")
+		return nil, fmt.Errorf("DB_PASSWORD is required")
 	}
 
-	// Log connection info (masked for security)
-	log.Printf("Connecting to database: host=%s port=%s user=%s dbname=%s pooler=%v",
-		maskHost(AppConfig.DBHost),
-		AppConfig.DBPort,
-		AppConfig.DBUser,
-		AppConfig.DBName,
-		AppConfig.UsePooler,
-	)
+	log.Printf("Connecting to database...")
 
-	// Build DSN with proper settings for Supabase
-	// Using connection parameters optimized for serverless environments
+	// Standard PostgreSQL DSN for Supabase
 	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%s sslmode=require TimeZone=Asia/Ho_Chi_Minh connect_timeout=10",
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=require",
 		AppConfig.DBHost,
+		AppConfig.DBPort,
 		AppConfig.DBUser,
 		AppConfig.DBPassword,
 		AppConfig.DBName,
-		AppConfig.DBPort,
 	)
 
-	log.Printf("DSN configured (password hidden)")
-
-	var logLevel logger.LogLevel
-	if AppConfig.Environment == "production" {
-		logLevel = logger.Error
-	} else {
-		logLevel = logger.Info
+	// GORM config optimized for serverless
+	gormConfig := &gorm.Config{
+		Logger:                 logger.Default.LogMode(logger.Error),
+		PrepareStmt:            false,
+		SkipDefaultTransaction: true,
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger:                 logger.Default.LogMode(logLevel),
-		PrepareStmt:            false, // Disable prepared statements for Supabase pooler
-		SkipDefaultTransaction: true,  // Improve performance
-	})
-
+	db, err := gorm.Open(postgres.Open(dsn), gormConfig)
 	if err != nil {
-		log.Printf("Database connection error: %v", err)
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		log.Printf("Database connection failed: %v", err)
+		return nil, err
 	}
 
-	// Configure connection pool for serverless environment
+	// Configure connection pool for Cloud Run
 	sqlDB, err := db.DB()
 	if err != nil {
-		log.Printf("Failed to get underlying database: %v", err)
-		return nil, fmt.Errorf("failed to get database: %w", err)
+		return nil, err
 	}
 
-	// Set connection pool settings (important for Cloud Run)
 	sqlDB.SetMaxIdleConns(2)
 	sqlDB.SetMaxOpenConns(10)
-	sqlDB.SetConnMaxLifetime(time.Hour)
-	sqlDB.SetConnMaxIdleTime(10 * time.Minute)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
-	// Verify connection with ping
+	// Test connection
 	if err := sqlDB.Ping(); err != nil {
 		log.Printf("Database ping failed: %v", err)
-		return nil, fmt.Errorf("database ping failed: %w", err)
+		return nil, err
 	}
 
-	log.Printf("Database connection verified successfully")
+	log.Println("Database connected successfully!")
 	DB = db
 	return db, nil
 }
 
-// maskHost masks host for logging, preserving domain structure
-func maskHost(host string) string {
-	if len(host) <= 3 {
+// maskString masks sensitive strings for logging
+func maskString(s string) string {
+	if len(s) <= 8 {
 		return "***"
 	}
-	if len(host) <= 15 {
-		return host[:3] + "***"
-	}
-	return host[:8] + "***" + host[len(host)-10:]
+	return s[:4] + "***" + s[len(s)-4:]
 }
 
-// getEnv gets an environment variable or returns a default value
+// getEnv gets environment variable or default
 func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
-	return value
+	return defaultValue
 }
