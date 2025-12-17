@@ -12,6 +12,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// AuthControllerSetter is called to set the global auth controller in main.go
+var AuthControllerSetter func(ac *admin.AuthController)
+
 // SetupRoutes sets up all API routes
 func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// Initialize shared trading bot
@@ -29,6 +32,11 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// Initialize admin controllers
 	adminController := admin.NewAdminController(db, tradingBot)
 	authController := admin.NewAuthController(db)
+
+	// Set the global auth controller so main.go's login handlers can use it
+	if AuthControllerSetter != nil {
+		AuthControllerSetter(authController)
+	}
 
 	// API v1 group
 	api := router.Group("/api/v1")
@@ -178,12 +186,10 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	}
 
 	// Admin UI routes
+	// Note: /admin/login routes are registered in main.go's setupInitialAdminRoutes
+	// to ensure they're available immediately when server starts
 	adminRoutes := router.Group("/admin")
 	{
-		// Public routes (no auth required)
-		adminRoutes.GET("/login", authController.LoginPage)
-		adminRoutes.POST("/login", authController.Login)
-
 		// Protected routes (auth required)
 		protected := adminRoutes.Group("")
 		protected.Use(authController.AuthMiddleware())
