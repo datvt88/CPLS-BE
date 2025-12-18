@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TCBS Stock Prices - CPLS Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: #2c3e50;
+        }
+        .sidebar a {
+            color: #ecf0f1;
+            text-decoration: none;
+            padding: 15px;
+            display: block;
+            transition: all 0.3s;
+        }
+        .sidebar a:hover {
+            background: #34495e;
+            padding-left: 25px;
+        }
+        .sidebar a.active {
+            background: #3498db;
+        }
+        .sidebar-section {
+            color: #95a5a6;
+            font-size: 0.8rem;
+            padding: 10px 15px 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .stat-card {
+            border-left: 4px solid #3498db;
+            transition: transform 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        .badge-hose { background: #e74c3c; }
+        .badge-hnx { background: #3498db; }
+        .badge-upcom { background: #27ae60; }
+        .table-hover tbody tr:hover {
+            background-color: rgba(52, 152, 219, 0.1);
+        }
+        .ticker-code {
+            font-weight: bold;
+            color: #2c3e50;
+            font-family: monospace;
+            font-size: 1.1em;
+        }
+        .price-up { color: #27ae60; }
+        .price-down { color: #e74c3c; }
+        .price-ref { color: #f39c12; }
+        .price-ceil { color: #9b59b6; }
+        .price-floor { color: #3498db; }
+        .search-box {
+            max-width: 300px;
+        }
+        .sync-info {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        .exchange-filter .btn {
+            min-width: 80px;
+        }
+        .exchange-filter .btn.active {
+            font-weight: bold;
+        }
+        .price-value {
+            font-family: monospace;
+            font-weight: 600;
+        }
+        .change-badge {
+            font-size: 0.85em;
+            min-width: 70px;
+            display: inline-block;
+        }
+        .top-list-item {
+            padding: 8px 12px;
+            border-bottom: 1px solid #eee;
+            transition: background 0.2s;
+        }
+        .top-list-item:hover {
+            background: #f8f9fa;
+        }
+        .top-list-item:last-child {
+            border-bottom: none;
+        }
+        .market-overview-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .progress-bar-animated {
+            animation: progress-bar-stripes 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar px-0">
+                <div class="text-center py-4">
+                    <h4 class="text-white">CPLS Admin</h4>
+                    <p class="text-muted small">Stock Trading System</p>
+                </div>
+                <nav>
+                    <a href="/admin">
+                        <i class="bi bi-speedometer2"></i> Dashboard
+                    </a>
+
+                    <div class="sidebar-section">User Management</div>
+                    <a href="/admin/users">
+                        <i class="bi bi-people"></i> Users
+                    </a>
+
+                    <div class="sidebar-section">Stock Data</div>
+                    <a href="/admin/stocks">
+                        <i class="bi bi-graph-up"></i> Stocks
+                    </a>
+                    <a href="/admin/prices" class="active">
+                        <i class="bi bi-currency-dollar"></i> TCBS Prices
+                    </a>
+
+                    <div class="sidebar-section">System</div>
+                    <a href="/api/v1/health/db" target="_blank">
+                        <i class="bi bi-database"></i> DB Health
+                    </a>
+                    <a href="/health" target="_blank">
+                        <i class="bi bi-heart-pulse"></i> Health Check
+                    </a>
+                    <hr class="text-white">
+                    <a href="/admin/logout" class="text-danger">
+                        <i class="bi bi-box-arrow-right"></i> Logout
+                    </a>
+                </nav>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-10">
+                <nav class="navbar navbar-light bg-light mb-4">
+                    <div class="container-fluid">
+                        <span class="navbar-brand mb-0 h1"><i class="bi bi-currency-dollar"></i> TCBS Stock Prices</span>
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-warning text-dark me-3">TCBS Proxy</span>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-person-circle"></i> {{ .AdminUser }}
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item text-danger" href="/admin/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+
+                <div class="container-fluid">
+                    {{ if .Error }}
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i> {{ .Error }}
+                    </div>
+                    {{ end }}
+
+                    <!-- Stats Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card stat-card">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">Total Prices</h6>
+                                    <h2 class="card-title" id="stat-total">{{ if .Stats }}{{ .Stats.total }}{{ else }}0{{ end }}</h2>
+                                    <p class="card-text text-muted"><i class="bi bi-collection"></i> Synced</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card stat-card" style="border-left-color: #27ae60;">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">Gainers</h6>
+                                    <h2 class="card-title text-success">{{ if .Stats }}{{ .Stats.gainers }}{{ else }}0{{ end }}</h2>
+                                    <p class="card-text text-muted"><i class="bi bi-graph-up-arrow"></i> Price Up</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card stat-card" style="border-left-color: #e74c3c;">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">Losers</h6>
+                                    <h2 class="card-title text-danger">{{ if .Stats }}{{ .Stats.losers }}{{ else }}0{{ end }}</h2>
+                                    <p class="card-text text-muted"><i class="bi bi-graph-down-arrow"></i> Price Down</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card stat-card" style="border-left-color: #f39c12;">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">Unchanged</h6>
+                                    <h2 class="card-title text-warning">{{ if .Stats }}{{ .Stats.unchanged }}{{ else }}0{{ end }}</h2>
+                                    <p class="card-text text-muted"><i class="bi bi-dash-lg"></i> No Change</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top Movers Row -->
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-header bg-success text-white">
+                                    <i class="bi bi-graph-up-arrow"></i> Top Gainers
+                                </div>
+                                <div class="card-body p-0" id="topGainersList">
+                                    <div class="text-center py-4 text-muted">
+                                        <i class="bi bi-arrow-repeat spin"></i> Loading...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-header bg-danger text-white">
+                                    <i class="bi bi-graph-down-arrow"></i> Top Losers
+                                </div>
+                                <div class="card-body p-0" id="topLosersList">
+                                    <div class="text-center py-4 text-muted">
+                                        <i class="bi bi-arrow-repeat spin"></i> Loading...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-header bg-primary text-white">
+                                    <i class="bi bi-bar-chart-fill"></i> Top Volume
+                                </div>
+                                <div class="card-body p-0" id="topVolumeList">
+                                    <div class="text-center py-4 text-muted">
+                                        <i class="bi bi-arrow-repeat spin"></i> Loading...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Bar -->
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-4">
+                                    <form method="GET" action="/admin/prices" class="d-flex" id="searchForm">
+                                        <input type="text" name="search" class="form-control search-box me-2"
+                                               placeholder="Search by ticker..." value="{{ .Search }}" id="searchInput">
+                                        <input type="hidden" name="exchange" value="{{ .Exchange }}" id="exchangeInput">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="bi bi-search"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="btn-group exchange-filter" role="group">
+                                        <button type="button" class="btn btn-outline-secondary {{ if eq .Exchange "all" }}active{{ end }}" onclick="filterByExchange('all')">All</button>
+                                        <button type="button" class="btn btn-outline-danger {{ if eq .Exchange "HOSE" }}active{{ end }}" onclick="filterByExchange('HOSE')">HOSE</button>
+                                        <button type="button" class="btn btn-outline-primary {{ if eq .Exchange "HNX" }}active{{ end }}" onclick="filterByExchange('HNX')">HNX</button>
+                                        <button type="button" class="btn btn-outline-success {{ if eq .Exchange "UPCOM" }}active{{ end }}" onclick="filterByExchange('UPCOM')">UPCOM</button>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <button class="btn btn-warning me-2" onclick="syncPrices()" id="syncBtn" {{ if .IsSyncing }}disabled{{ end }}>
+                                        <i class="bi bi-arrow-repeat {{ if .IsSyncing }}spin{{ end }}"></i>
+                                        {{ if .IsSyncing }}Syncing...{{ else }}Sync from TCBS{{ end }}
+                                    </button>
+                                    <a href="/admin/api/prices/export?exchange={{ .Exchange }}" class="btn btn-secondary">
+                                        <i class="bi bi-download"></i> Export
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="row mt-2">
+                                <div class="col-12">
+                                    <span class="sync-info">
+                                        <i class="bi bi-clock"></i> Last sync:
+                                        {{ if .LastSync }}
+                                            <span id="lastSyncTime">{{ .LastSync.Format "2006-01-02 15:04:05" }}</span>
+                                        {{ else }}
+                                            <span id="lastSyncTime" class="text-warning">Never synced</span>
+                                        {{ end }}
+                                        | Stocks available: {{ .StockCount }}
+                                        | Chunk size: 50 | API: apipubaws.tcbs.com.vn
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Prices Table -->
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0"><i class="bi bi-table"></i> Price List ({{ .Total }} results)</h5>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Ticker</th>
+                                            <th>Exchange</th>
+                                            <th class="text-end">Price</th>
+                                            <th class="text-end">Change</th>
+                                            <th class="text-end">Change %</th>
+                                            <th class="text-end">Open</th>
+                                            <th class="text-end">High</th>
+                                            <th class="text-end">Low</th>
+                                            <th class="text-end">Volume</th>
+                                            <th class="text-end">Market Cap</th>
+                                            <th class="text-center">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{ range .Prices }}
+                                        <tr>
+                                            <td>
+                                                <span class="ticker-code">{{ .Ticker }}</span>
+                                            </td>
+                                            <td>
+                                                {{ if eq .Exchange "HOSE" }}
+                                                <span class="badge badge-hose">HOSE</span>
+                                                {{ else if eq .Exchange "HNX" }}
+                                                <span class="badge badge-hnx">HNX</span>
+                                                {{ else }}
+                                                <span class="badge badge-upcom">UPCOM</span>
+                                                {{ end }}
+                                            </td>
+                                            <td class="text-end">
+                                                <span class="price-value {{ if gt .PriceChange 0.0 }}price-up{{ else if lt .PriceChange 0.0 }}price-down{{ else }}price-ref{{ end }}">
+                                                    {{ printf "%.2f" .Price }}
+                                                </span>
+                                            </td>
+                                            <td class="text-end">
+                                                {{ if gt .PriceChange 0.0 }}
+                                                <span class="badge bg-success change-badge">+{{ printf "%.2f" .PriceChange }}</span>
+                                                {{ else if lt .PriceChange 0.0 }}
+                                                <span class="badge bg-danger change-badge">{{ printf "%.2f" .PriceChange }}</span>
+                                                {{ else }}
+                                                <span class="badge bg-secondary change-badge">0.00</span>
+                                                {{ end }}
+                                            </td>
+                                            <td class="text-end">
+                                                {{ if gt .PriceChangeRatio 0.0 }}
+                                                <span class="text-success">+{{ printf "%.2f" .PriceChangeRatio }}%</span>
+                                                {{ else if lt .PriceChangeRatio 0.0 }}
+                                                <span class="text-danger">{{ printf "%.2f" .PriceChangeRatio }}%</span>
+                                                {{ else }}
+                                                <span class="text-secondary">0.00%</span>
+                                                {{ end }}
+                                            </td>
+                                            <td class="text-end">{{ printf "%.2f" .OpenPrice }}</td>
+                                            <td class="text-end price-ceil">{{ printf "%.2f" .HighestPrice }}</td>
+                                            <td class="text-end price-floor">{{ printf "%.2f" .LowestPrice }}</td>
+                                            <td class="text-end">
+                                                <small>{{ formatVolume .Vol }}</small>
+                                            </td>
+                                            <td class="text-end">
+                                                <small>{{ formatMarketCap .MarketCap }}</small>
+                                            </td>
+                                            <td class="text-center">
+                                                <button class="btn btn-sm btn-outline-primary" onclick="viewPrice('{{ .Ticker }}')" title="View Details">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {{ else }}
+                                        <tr>
+                                            <td colspan="11" class="text-center py-4 text-muted">
+                                                <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                                                <p class="mt-2">No prices found. Click "Sync from TCBS" to fetch price data.</p>
+                                                <p class="small">Make sure to sync stocks from VNDirect first!</p>
+                                            </td>
+                                        </tr>
+                                        {{ end }}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Pagination -->
+                        {{ if gt .TotalPages 1 }}
+                        <div class="card-footer">
+                            <nav aria-label="Price pagination">
+                                <ul class="pagination justify-content-center mb-0">
+                                    {{ if gt .Page 1 }}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ subtract .Page 1 }}&search={{ .Search }}&exchange={{ .Exchange }}">Previous</a>
+                                    </li>
+                                    {{ end }}
+
+                                    {{ range $i := iterate .TotalPages }}
+                                    {{ if lt $i 10 }}
+                                    <li class="page-item {{ if eq (add $i 1) $.Page }}active{{ end }}">
+                                        <a class="page-link" href="?page={{ add $i 1 }}&search={{ $.Search }}&exchange={{ $.Exchange }}">{{ add $i 1 }}</a>
+                                    </li>
+                                    {{ end }}
+                                    {{ end }}
+
+                                    {{ if gt .TotalPages 10 }}
+                                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ .TotalPages }}&search={{ .Search }}&exchange={{ .Exchange }}">{{ .TotalPages }}</a>
+                                    </li>
+                                    {{ end }}
+
+                                    {{ if lt .Page .TotalPages }}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ add .Page 1 }}&search={{ .Search }}&exchange={{ .Exchange }}">Next</a>
+                                    </li>
+                                    {{ end }}
+                                </ul>
+                            </nav>
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Price Modal -->
+    <div class="modal fade" id="viewPriceModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-currency-dollar"></i> Price Details</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="viewPriceContent">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2">Loading...</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Progress Modal -->
+    <div class="modal fade" id="syncModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title"><i class="bi bi-arrow-repeat"></i> Syncing Prices from TCBS</h5>
+                </div>
+                <div class="modal-body text-center" id="syncContent">
+                    <div class="spinner-border text-warning mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+                    <h5>Fetching prices from TCBS API...</h5>
+                    <p class="text-muted">Processing in chunks of 50 tickers to avoid rate limiting.</p>
+                    <p class="text-muted small">This may take a few minutes for ~1700 stocks.</p>
+                    <div class="progress mt-3" style="height: 25px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" role="progressbar" style="width: 100%"></div>
+                    </div>
+                </div>
+                <div class="modal-footer" id="syncFooter" style="display: none;">
+                    <button type="button" class="btn btn-primary" onclick="location.reload()">Refresh Page</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        // Format numbers
+        function formatNumber(num) {
+            if (num >= 1e12) return (num / 1e12).toFixed(2) + 'T';
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+            return num.toFixed(0);
+        }
+
+        // Filter by exchange
+        function filterByExchange(exchange) {
+            document.getElementById('exchangeInput').value = exchange;
+            document.getElementById('searchForm').submit();
+        }
+
+        // Load top lists
+        function loadTopLists() {
+            // Top Gainers
+            $.get('/admin/api/prices/top-gainers?limit=10', function(data) {
+                if (data && data.length > 0) {
+                    let html = '';
+                    data.forEach(function(p) {
+                        html += `
+                            <div class="top-list-item d-flex justify-content-between align-items-center">
+                                <span class="ticker-code">${p.ticker}</span>
+                                <div>
+                                    <span class="text-success me-2">+${p.price_change_ratio.toFixed(2)}%</span>
+                                    <span class="badge bg-success">${p.price.toFixed(2)}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    $('#topGainersList').html(html);
+                } else {
+                    $('#topGainersList').html('<div class="text-center py-4 text-muted">No data</div>');
+                }
+            }).fail(function() {
+                $('#topGainersList').html('<div class="text-center py-4 text-danger">Error loading</div>');
+            });
+
+            // Top Losers
+            $.get('/admin/api/prices/top-losers?limit=10', function(data) {
+                if (data && data.length > 0) {
+                    let html = '';
+                    data.forEach(function(p) {
+                        html += `
+                            <div class="top-list-item d-flex justify-content-between align-items-center">
+                                <span class="ticker-code">${p.ticker}</span>
+                                <div>
+                                    <span class="text-danger me-2">${p.price_change_ratio.toFixed(2)}%</span>
+                                    <span class="badge bg-danger">${p.price.toFixed(2)}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    $('#topLosersList').html(html);
+                } else {
+                    $('#topLosersList').html('<div class="text-center py-4 text-muted">No data</div>');
+                }
+            }).fail(function() {
+                $('#topLosersList').html('<div class="text-center py-4 text-danger">Error loading</div>');
+            });
+
+            // Top Volume
+            $.get('/admin/api/prices/top-volume?limit=10', function(data) {
+                if (data && data.length > 0) {
+                    let html = '';
+                    data.forEach(function(p) {
+                        html += `
+                            <div class="top-list-item d-flex justify-content-between align-items-center">
+                                <span class="ticker-code">${p.ticker}</span>
+                                <div>
+                                    <span class="text-muted me-2">${formatNumber(p.vol)}</span>
+                                    <span class="badge ${p.price_change > 0 ? 'bg-success' : (p.price_change < 0 ? 'bg-danger' : 'bg-secondary')}">${p.price.toFixed(2)}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    $('#topVolumeList').html(html);
+                } else {
+                    $('#topVolumeList').html('<div class="text-center py-4 text-muted">No data</div>');
+                }
+            }).fail(function() {
+                $('#topVolumeList').html('<div class="text-center py-4 text-danger">Error loading</div>');
+            });
+        }
+
+        // View price details
+        function viewPrice(ticker) {
+            const modal = new bootstrap.Modal(document.getElementById('viewPriceModal'));
+            modal.show();
+
+            document.getElementById('viewPriceContent').innerHTML = `
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2">Loading...</p>
+                </div>
+            `;
+
+            $.get('/admin/api/prices/' + ticker, function(price) {
+                let changeClass = price.price_change > 0 ? 'text-success' : (price.price_change < 0 ? 'text-danger' : 'text-secondary');
+                let changeIcon = price.price_change > 0 ? 'bi-arrow-up' : (price.price_change < 0 ? 'bi-arrow-down' : 'bi-dash');
+
+                let html = `
+                    <div class="row">
+                        <div class="col-12 text-center mb-4">
+                            <h1 class="ticker-code display-4">${price.ticker}</h1>
+                            <h2 class="${changeClass}">${price.price.toFixed(2)}</h2>
+                            <span class="${changeClass}">
+                                <i class="bi ${changeIcon}"></i>
+                                ${price.price_change > 0 ? '+' : ''}${price.price_change.toFixed(2)}
+                                (${price.price_change_ratio > 0 ? '+' : ''}${price.price_change_ratio.toFixed(2)}%)
+                            </span>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Price Information</h6>
+                            <table class="table table-sm">
+                                <tr><th>Open</th><td>${price.open_price.toFixed(2)}</td></tr>
+                                <tr><th>High</th><td class="price-ceil">${price.highest_price.toFixed(2)}</td></tr>
+                                <tr><th>Low</th><td class="price-floor">${price.lowest_price.toFixed(2)}</td></tr>
+                                <tr><th>Close</th><td>${price.close_price.toFixed(2)}</td></tr>
+                                <tr><th>Ref</th><td class="price-ref">${price.ref_price.toFixed(2)}</td></tr>
+                                <tr><th>Ceiling</th><td class="price-ceil">${price.ceiling_price.toFixed(2)}</td></tr>
+                                <tr><th>Floor</th><td class="price-floor">${price.floor_price.toFixed(2)}</td></tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Market Data</h6>
+                            <table class="table table-sm">
+                                <tr><th>Volume</th><td>${formatNumber(price.vol)}</td></tr>
+                                <tr><th>Total Value</th><td>${formatNumber(price.total_val)}</td></tr>
+                                <tr><th>Market Cap</th><td>${formatNumber(price.market_cap)}</td></tr>
+                                <tr><th>Foreign Buy</th><td>${formatNumber(price.foreign_buy_vol)}</td></tr>
+                                <tr><th>Foreign Sell</th><td>${formatNumber(price.foreign_sell_vol)}</td></tr>
+                                <tr><th>52W High</th><td>${price.week52_high.toFixed(2)}</td></tr>
+                                <tr><th>52W Low</th><td>${price.week52_low.toFixed(2)}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6 class="text-muted">Financial Ratios</h6>
+                            <div class="row">
+                                <div class="col-md-3"><span class="text-muted">P/E:</span> <strong>${price.pe.toFixed(2)}</strong></div>
+                                <div class="col-md-3"><span class="text-muted">P/B:</span> <strong>${price.pb.toFixed(2)}</strong></div>
+                                <div class="col-md-3"><span class="text-muted">EPS:</span> <strong>${price.eps.toFixed(0)}</strong></div>
+                                <div class="col-md-3"><span class="text-muted">BVPS:</span> <strong>${price.bvps.toFixed(0)}</strong></div>
+                            </div>
+                            <div class="row mt-2">
+                                <div class="col-md-3"><span class="text-muted">ROE:</span> <strong>${(price.roe * 100).toFixed(2)}%</strong></div>
+                                <div class="col-md-3"><span class="text-muted">ROA:</span> <strong>${(price.roa * 100).toFixed(2)}%</strong></div>
+                                <div class="col-md-3"><span class="text-muted">Beta:</span> <strong>${price.beta.toFixed(2)}</strong></div>
+                                <div class="col-md-3"><span class="text-muted">Shares:</span> <strong>${formatNumber(price.shares_outstanding)}</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('viewPriceContent').innerHTML = html;
+            }).fail(function(xhr) {
+                document.getElementById('viewPriceContent').innerHTML = `
+                    <div class="alert alert-danger">Error loading price: ${xhr.responseJSON?.error || 'Unknown error'}</div>
+                `;
+            });
+        }
+
+        // Sync prices from TCBS
+        function syncPrices() {
+            if (!confirm('Sync all stock prices from TCBS API? This will process ~1700 stocks in chunks of 50 and may take a few minutes.')) return;
+
+            const syncModal = new bootstrap.Modal(document.getElementById('syncModal'));
+            syncModal.show();
+
+            document.getElementById('syncBtn').disabled = true;
+
+            $.ajax({
+                url: '/admin/api/prices/sync?chunk_size=50&delay_ms=500',
+                method: 'POST',
+                timeout: 600000, // 10 minutes timeout
+                success: function(response) {
+                    const result = response.result;
+                    document.getElementById('syncContent').innerHTML = `
+                        <div class="text-center">
+                            <i class="bi bi-check-circle text-success" style="font-size: 4rem;"></i>
+                            <h5 class="mt-3">Sync Completed!</h5>
+                            <div class="mt-3">
+                                <p class="mb-1"><strong>Total Tickers:</strong> ${result.total_tickers}</p>
+                                <p class="mb-1"><strong>Chunks Processed:</strong> ${result.total_chunks}</p>
+                                <p class="mb-1"><strong>Fetched:</strong> <span class="text-success">${result.fetched}</span></p>
+                                <p class="mb-1"><strong>Failed:</strong> <span class="text-danger">${result.failed}</span></p>
+                                <p class="mb-1"><strong>Duration:</strong> ${result.duration}</p>
+                                ${result.errors && result.errors.length > 0 ?
+                                    `<p class="mb-1"><strong>Errors:</strong> <span class="text-danger">${result.errors.length}</span></p>` : ''}
+                            </div>
+                        </div>
+                    `;
+                    document.getElementById('syncFooter').style.display = 'flex';
+                },
+                error: function(xhr) {
+                    document.getElementById('syncContent').innerHTML = `
+                        <div class="text-center">
+                            <i class="bi bi-x-circle text-danger" style="font-size: 4rem;"></i>
+                            <h5 class="mt-3">Sync Failed</h5>
+                            <p class="text-danger">${xhr.responseJSON?.error || 'Unknown error occurred'}</p>
+                        </div>
+                    `;
+                    document.getElementById('syncFooter').style.display = 'flex';
+                    document.getElementById('syncBtn').disabled = false;
+                }
+            });
+        }
+
+        // CSS for spinning icon
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .spin {
+                animation: spin 1s linear infinite;
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Load top lists on page load
+        $(document).ready(function() {
+            loadTopLists();
+        });
+    </script>
+</body>
+</html>

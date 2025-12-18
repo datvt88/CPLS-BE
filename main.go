@@ -69,6 +69,30 @@ func main() {
 			}
 			return s[start:end]
 		},
+		"formatVolume": func(vol float64) string {
+			if vol >= 1e9 {
+				return fmt.Sprintf("%.2fB", vol/1e9)
+			}
+			if vol >= 1e6 {
+				return fmt.Sprintf("%.2fM", vol/1e6)
+			}
+			if vol >= 1e3 {
+				return fmt.Sprintf("%.2fK", vol/1e3)
+			}
+			return fmt.Sprintf("%.0f", vol)
+		},
+		"formatMarketCap": func(cap float64) string {
+			if cap >= 1e12 {
+				return fmt.Sprintf("%.2fT", cap/1e12)
+			}
+			if cap >= 1e9 {
+				return fmt.Sprintf("%.2fB", cap/1e9)
+			}
+			if cap >= 1e6 {
+				return fmt.Sprintf("%.2fM", cap/1e6)
+			}
+			return fmt.Sprintf("%.0f", cap)
+		},
 	})
 	if err := loadTemplates(router); err != nil {
 		log.Printf("Warning: Failed to load templates: %v", err)
@@ -272,6 +296,7 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 	supabaseClient := supabaseAuth.GetSupabaseClient()
 	userMgmtCtrl := admin.NewUserManagementController(supabaseClient)
 	stockCtrl := admin.NewStockController(supabaseClient)
+	tcbsPriceCtrl := admin.NewTCBSPriceController(supabaseClient)
 
 	adminRoutes := router.Group("/admin")
 	{
@@ -292,6 +317,9 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 
 			// Stock Management Pages
 			protected.GET("/stocks", stockCtrl.ListStocks)
+
+			// TCBS Price Management Pages
+			protected.GET("/prices", tcbsPriceCtrl.ListPrices)
 
 			// User Management API
 			userAPI := protected.Group("/api/users")
@@ -334,6 +362,20 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				stockAPI.POST("/sync", stockCtrl.SyncStocks)
 				stockAPI.GET("/:code", stockCtrl.GetStock)
 				stockAPI.DELETE("/:code", stockCtrl.DeleteStock)
+			}
+
+			// TCBS Price Management API
+			priceAPI := protected.Group("/api/prices")
+			{
+				priceAPI.GET("/stats", tcbsPriceCtrl.GetStats)
+				priceAPI.GET("/search", tcbsPriceCtrl.SearchPrices)
+				priceAPI.GET("/export", tcbsPriceCtrl.ExportPrices)
+				priceAPI.GET("/sync-status", tcbsPriceCtrl.GetSyncStatus)
+				priceAPI.POST("/sync", tcbsPriceCtrl.SyncPrices)
+				priceAPI.GET("/top-gainers", tcbsPriceCtrl.GetTopGainers)
+				priceAPI.GET("/top-losers", tcbsPriceCtrl.GetTopLosers)
+				priceAPI.GET("/top-volume", tcbsPriceCtrl.GetTopVolume)
+				priceAPI.GET("/:ticker", tcbsPriceCtrl.GetPrice)
 			}
 		}
 	}
