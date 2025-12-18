@@ -12,8 +12,35 @@ import (
 	"time"
 )
 
-// TCBS API URL for stock prices
-const TCBSPriceAPIURL = "https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/second-tc-price?tickers="
+// TCBS API URL for stock prices - using SSI API as alternative (TCBS API returns 404)
+const SSIPriceAPIURL = "https://iboard-query.ssi.com.vn/v2/stock/group/"
+
+// SSIPriceResponse represents the response from SSI API
+type SSIPriceResponse struct {
+	Data []SSIPriceData `json:"data"`
+}
+
+// SSIPriceData represents price data from SSI API
+type SSIPriceData struct {
+	SS            string  `json:"ss"`           // Stock symbol
+	SN            string  `json:"sn"`           // Short name
+	ST            string  `json:"st"`           // Exchange (hose, hnx, upcom)
+	CP            float64 `json:"cp"`           // Ceiling price
+	FP            float64 `json:"fp"`           // Floor price
+	RP            float64 `json:"rp"`           // Reference price
+	OP            float64 `json:"op"`           // Open price
+	HP            float64 `json:"hp"`           // Highest price
+	LP            float64 `json:"lp"`           // Lowest price
+	MP            float64 `json:"mp"`           // Match price (current price)
+	MQ            float64 `json:"mq"`           // Match quantity
+	CG            float64 `json:"cg"`           // Change
+	PCT           float64 `json:"pct"`          // Percent change
+	TVOL          float64 `json:"tvol"`         // Total volume
+	TVAL          float64 `json:"tval"`         // Total value
+	FBQ           float64 `json:"fbq"`          // Foreign buy quantity
+	FSQ           float64 `json:"fsq"`          // Foreign sell quantity
+	MC            float64 `json:"mc"`           // Market cap
+}
 
 // TCBSPriceResponse represents the response from TCBS API
 type TCBSPriceResponse struct {
@@ -135,51 +162,44 @@ func chunkSlice(slice []string, chunkSize int) [][]string {
 	return chunks
 }
 
-// FetchPricesFromTCBS fetches prices for a chunk of tickers from TCBS API
-func FetchPricesFromTCBS(tickers []string) ([]TCBSPriceData, error) {
-	if len(tickers) == 0 {
-		return nil, nil
+// FetchPricesFromSSI fetches all prices from SSI API by exchange
+func FetchPricesFromSSI(exchanges []string) ([]SSIPriceData, error) {
+	if len(exchanges) == 0 {
+		exchanges = []string{"hose", "hnx", "upcom"}
 	}
 
-	// Create custom transport to skip compression handling issues
 	transport := &http.Transport{
 		DisableCompression: true,
 	}
 	client := &http.Client{
-		Timeout:   30 * time.Second,
+		Timeout:   60 * time.Second,
 		Transport: transport,
 	}
 
-	url := TCBSPriceAPIURL + strings.Join(tickers, ",")
+	url := SSIPriceAPIURL + strings.Join(exchanges, ",")
+	log.Printf("SSI API request: %s", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set headers - simpler approach without compression
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7")
-	req.Header.Set("Origin", "https://tcinvest.tcbs.com.vn")
-	req.Header.Set("Referer", "https://tcinvest.tcbs.com.vn/")
-
-	log.Printf("TCBS API request: %s (tickers: %d)", url[:80]+"...", len(tickers))
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("TCBS API request failed: %v", err)
-		return nil, fmt.Errorf("failed to fetch from TCBS: %w", err)
+		log.Printf("SSI API request failed: %v", err)
+		return nil, fmt.Errorf("failed to fetch from SSI: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Log response headers for debugging
-	log.Printf("TCBS API response: status=%d, content-encoding=%s", resp.StatusCode, resp.Header.Get("Content-Encoding"))
+	log.Printf("SSI API response: status=%d", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("TCBS API error: status=%d, body=%s", resp.StatusCode, string(body))
-		return nil, fmt.Errorf("TCBS API error (status %d): %s", resp.StatusCode, string(body))
+		log.Printf("SSI API error: status=%d, body=%s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("SSI API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -187,20 +207,27 @@ func FetchPricesFromTCBS(tickers []string) ([]TCBSPriceData, error) {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Log first 200 chars of response for debugging
-	logBody := string(body)
-	if len(logBody) > 200 {
-		logBody = logBody[:200] + "..."
-	}
-	log.Printf("TCBS API response body preview: %s", logBody)
-
-	var response TCBSPriceResponse
+	var response SSIPriceResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		// Try parsing as array directly
+		var dataArray []SSIPriceData
+		if err2 := json.Unmarshal(body, &dataArray); err2 != nil {
+			log.Printf("SSI API parse error: %v, body preview: %s", err, string(body)[:min(200, len(body))])
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
+		return dataArray, nil
 	}
 
-	log.Printf("TCBS API parsed %d records", len(response.Data))
+	log.Printf("SSI API fetched %d records", len(response.Data))
 	return response.Data, nil
+}
+
+// min returns the smaller of two ints
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // GetAllTickers returns all ticker codes from stock store
@@ -221,7 +248,7 @@ func (s *InMemoryPriceStore) IsSyncing() bool {
 	return s.isSyncing
 }
 
-// SyncFromTCBS syncs all stock prices from TCBS API in chunks
+// SyncFromTCBS syncs all stock prices from SSI API (renamed for compatibility)
 func (s *InMemoryPriceStore) SyncFromTCBS(chunkSize int, delayMs int) (*PriceSyncResult, error) {
 	// Check if already syncing
 	s.mu.Lock()
@@ -245,37 +272,23 @@ func (s *InMemoryPriceStore) SyncFromTCBS(chunkSize int, delayMs int) (*PriceSyn
 		SyncedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
 
-	// Get all tickers
-	tickers := GetAllTickers()
-	if len(tickers) == 0 {
-		return nil, fmt.Errorf("no tickers available - please sync stocks first")
+	// Fetch all prices from SSI API (one call for all exchanges)
+	exchanges := []string{"hose", "hnx", "upcom"}
+	result.TotalChunks = len(exchanges)
+
+	allPrices, err := FetchPricesFromSSI(exchanges)
+	if err != nil {
+		result.Errors = append(result.Errors, err.Error())
+		result.Duration = time.Since(startTime).String()
+		return result, err
 	}
 
-	result.TotalTickers = len(tickers)
+	result.TotalTickers = len(allPrices)
 
-	// Split into chunks
-	chunks := chunkSlice(tickers, chunkSize)
-	result.TotalChunks = len(chunks)
-
-	// Process each chunk
-	for i, chunk := range chunks {
-		prices, err := FetchPricesFromTCBS(chunk)
-		if err != nil {
-			result.Failed += len(chunk)
-			result.Errors = append(result.Errors, fmt.Sprintf("chunk %d: %v", i+1, err))
-			continue
-		}
-
-		// Store prices
-		for _, priceData := range prices {
-			s.UpsertPrice(&priceData)
-			result.Fetched++
-		}
-
-		// Delay between chunks to avoid rate limiting
-		if i < len(chunks)-1 && delayMs > 0 {
-			time.Sleep(time.Duration(delayMs) * time.Millisecond)
-		}
+	// Store all prices
+	for _, priceData := range allPrices {
+		s.UpsertSSIPrice(&priceData)
+		result.Fetched++
 	}
 
 	// Update last sync time
@@ -285,10 +298,11 @@ func (s *InMemoryPriceStore) SyncFromTCBS(chunkSize int, delayMs int) (*PriceSyn
 	s.mu.Unlock()
 
 	result.Duration = time.Since(startTime).String()
+	log.Printf("SSI sync completed: fetched=%d, duration=%s", result.Fetched, result.Duration)
 	return result, nil
 }
 
-// UpsertPrice adds or updates a price
+// UpsertPrice adds or updates a price (for TCBS data - kept for compatibility)
 func (s *InMemoryPriceStore) UpsertPrice(data *TCBSPriceData) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -322,6 +336,36 @@ func (s *InMemoryPriceStore) UpsertPrice(data *TCBSPriceData) {
 		Week52High:       data.Week52High,
 		Week52Low:        data.Week52Low,
 		SharesOutstanding: data.SharesOutstanding,
+		UpdatedAt:        time.Now(),
+	}
+}
+
+// UpsertSSIPrice adds or updates a price from SSI API data
+func (s *InMemoryPriceStore) UpsertSSIPrice(data *SSIPriceData) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ticker := strings.ToUpper(data.SS)
+	exchange := strings.ToUpper(data.ST)
+
+	s.prices[ticker] = &StockPrice{
+		Ticker:           ticker,
+		Exchange:         exchange,
+		Price:            data.MP,                    // Match price
+		PriceChange:      data.CG,                    // Change
+		PriceChangeRatio: data.PCT,                   // Percent change
+		Vol:              data.TVOL,                  // Total volume
+		HighestPrice:     data.HP,                    // Highest price
+		LowestPrice:      data.LP,                    // Lowest price
+		OpenPrice:        data.OP,                    // Open price
+		ClosePrice:       data.MP,                    // Using match price as close
+		RefPrice:         data.RP,                    // Reference price
+		CeilingPrice:     data.CP,                    // Ceiling price
+		FloorPrice:       data.FP,                    // Floor price
+		ForeignBuyVol:    data.FBQ,                   // Foreign buy quantity
+		ForeignSellVol:   data.FSQ,                   // Foreign sell quantity
+		TotalVal:         data.TVAL,                  // Total value
+		MarketCap:        data.MC,                    // Market cap
 		UpdatedAt:        time.Now(),
 	}
 }
