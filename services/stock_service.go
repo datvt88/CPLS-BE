@@ -1,13 +1,14 @@
 package services
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -36,7 +37,7 @@ type VNDirectStock struct {
 	TaxCode        string `json:"taxCode"`
 }
 
-// Stock represents a stock in the database
+// Stock represents a stock in the in-memory storage
 type Stock struct {
 	ID             string     `json:"id"`
 	Code           string     `json:"code"`
@@ -76,6 +77,23 @@ type StockSyncResult struct {
 	SyncedAt     string   `json:"synced_at"`
 }
 
+// InMemoryStockStore stores stocks in memory
+type InMemoryStockStore struct {
+	mu         sync.RWMutex
+	stocks     map[string]*Stock // key = stock code
+	lastSyncAt *time.Time
+}
+
+// Global in-memory stock store
+var GlobalStockStore = NewInMemoryStockStore()
+
+// NewInMemoryStockStore creates a new in-memory stock store
+func NewInMemoryStockStore() *InMemoryStockStore {
+	return &InMemoryStockStore{
+		stocks: make(map[string]*Stock),
+	}
+}
+
 // FetchStocksFromVNDirect fetches stock list from VNDirect API
 func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
@@ -112,257 +130,226 @@ func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 	return response.Data, nil
 }
 
-// GetStocks fetches stocks from Supabase with pagination and search
-func (c *SupabaseDBClient) GetStocks(page, pageSize int, search, floor, sortBy, sortOrder string) (*StockListResponse, error) {
+// GetAll returns all stocks
+func (s *InMemoryStockStore) GetAll() []Stock {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	stocks := make([]Stock, 0, len(s.stocks))
+	for _, stock := range s.stocks {
+		stocks = append(stocks, *stock)
+	}
+	return stocks
+}
+
+// GetStocks returns paginated stocks with search and filter
+func (s *InMemoryStockStore) GetStocks(page, pageSize int, search, floor, sortBy, sortOrder string) *StockListResponse {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
+		pageSize = 50
 	}
 
-	offset := (page - 1) * pageSize
+	// Filter stocks
+	var filtered []Stock
+	searchLower := strings.ToLower(search)
 
-	// Build query URL
-	queryURL := fmt.Sprintf("%s/rest/v1/stocks?select=*&order=%s.%s&limit=%d&offset=%d",
-		c.URL, sortBy, sortOrder, pageSize, offset)
-
-	// Add filters
-	filters := []string{}
-
-	if search != "" {
-		filters = append(filters, fmt.Sprintf("or=(code.ilike.%%%s%%,company_name.ilike.%%%s%%,short_name.ilike.%%%s%%)",
-			url.QueryEscape(search), url.QueryEscape(search), url.QueryEscape(search)))
-	}
-
-	if floor != "" && floor != "all" {
-		filters = append(filters, fmt.Sprintf("floor=eq.%s", url.QueryEscape(floor)))
-	}
-
-	for _, f := range filters {
-		queryURL += "&" + f
-	}
-
-	req, err := http.NewRequest("GET", queryURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("apikey", c.getAPIKey())
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Prefer", "count=exact")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var stocks []Stock
-	if err := json.Unmarshal(body, &stocks); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Get total count from Content-Range header
-	var total int64
-	contentRange := resp.Header.Get("Content-Range")
-	if contentRange != "" {
-		fmt.Sscanf(contentRange, "*/%d", &total)
-		if total == 0 {
-			var start, end int64
-			fmt.Sscanf(contentRange, "%d-%d/%d", &start, &end, &total)
+	for _, stock := range s.stocks {
+		// Floor filter
+		if floor != "" && floor != "all" && stock.Floor != floor {
+			continue
 		}
+
+		// Search filter
+		if search != "" {
+			codeLower := strings.ToLower(stock.Code)
+			nameLower := strings.ToLower(stock.CompanyName)
+			shortNameLower := strings.ToLower(stock.ShortName)
+
+			if !strings.Contains(codeLower, searchLower) &&
+				!strings.Contains(nameLower, searchLower) &&
+				!strings.Contains(shortNameLower, searchLower) {
+				continue
+			}
+		}
+
+		filtered = append(filtered, *stock)
 	}
 
+	// Sort stocks
+	sort.Slice(filtered, func(i, j int) bool {
+		var less bool
+		switch sortBy {
+		case "code":
+			less = filtered[i].Code < filtered[j].Code
+		case "floor":
+			less = filtered[i].Floor < filtered[j].Floor
+		case "company_name":
+			less = filtered[i].CompanyName < filtered[j].CompanyName
+		case "listed_date":
+			less = filtered[i].ListedDate < filtered[j].ListedDate
+		default:
+			less = filtered[i].Code < filtered[j].Code
+		}
+
+		if sortOrder == "desc" {
+			return !less
+		}
+		return less
+	})
+
+	// Pagination
+	total := int64(len(filtered))
 	totalPages := int(total) / pageSize
 	if int(total)%pageSize > 0 {
 		totalPages++
 	}
 
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > len(filtered) {
+		start = len(filtered)
+	}
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+
 	return &StockListResponse{
-		Stocks:     stocks,
+		Stocks:     filtered[start:end],
 		Total:      total,
 		Page:       page,
 		PageSize:   pageSize,
 		TotalPages: totalPages,
-	}, nil
+	}
 }
 
-// GetStockByCode fetches a single stock by code
-func (c *SupabaseDBClient) GetStockByCode(code string) (*Stock, error) {
-	queryURL := fmt.Sprintf("%s/rest/v1/stocks?code=eq.%s&limit=1", c.URL, url.QueryEscape(code))
+// GetByCode returns a stock by code
+func (s *InMemoryStockStore) GetByCode(code string) (*Stock, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	req, err := http.NewRequest("GET", queryURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("apikey", c.getAPIKey())
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var stocks []Stock
-	if err := json.Unmarshal(body, &stocks); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if len(stocks) == 0 {
+	stock, exists := s.stocks[strings.ToUpper(code)]
+	if !exists {
 		return nil, errors.New("stock not found")
 	}
-
-	return &stocks[0], nil
+	return stock, nil
 }
 
-// GetStockCount returns the total count of stocks
-func (c *SupabaseDBClient) GetStockCount() (int64, error) {
-	queryURL := fmt.Sprintf("%s/rest/v1/stocks?select=count", c.URL)
+// Upsert adds or updates a stock
+func (s *InMemoryStockStore) Upsert(vnStock *VNDirectStock) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	req, err := http.NewRequest("GET", queryURL, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
-	}
+	now := time.Now()
+	code := strings.ToUpper(vnStock.Code)
 
-	req.Header.Set("apikey", c.getAPIKey())
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
-	req.Header.Set("Prefer", "count=exact")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var total int64
-	contentRange := resp.Header.Get("Content-Range")
-	if contentRange != "" {
-		fmt.Sscanf(contentRange, "*/%d", &total)
-		if total == 0 {
-			var start, end int64
-			fmt.Sscanf(contentRange, "%d-%d/%d", &start, &end, &total)
+	existing, exists := s.stocks[code]
+	if exists {
+		// Update existing
+		existing.Type = vnStock.Type
+		existing.Floor = vnStock.Floor
+		existing.ISIN = vnStock.ISIN
+		existing.Status = vnStock.Status
+		existing.CompanyName = vnStock.CompanyName
+		existing.CompanyNameEng = vnStock.CompanyNameEng
+		existing.ShortName = vnStock.ShortName
+		existing.ShortNameEng = vnStock.ShortNameEng
+		existing.ListedDate = vnStock.ListedDate
+		existing.DelistedDate = vnStock.DelistedDate
+		existing.CompanyID = vnStock.CompanyID
+		existing.TaxCode = vnStock.TaxCode
+		existing.IsActive = vnStock.Status == "listed"
+		existing.LastSyncAt = &now
+		existing.UpdatedAt = now
+	} else {
+		// Create new
+		s.stocks[code] = &Stock{
+			ID:             code,
+			Code:           code,
+			Type:           vnStock.Type,
+			Floor:          vnStock.Floor,
+			ISIN:           vnStock.ISIN,
+			Status:         vnStock.Status,
+			CompanyName:    vnStock.CompanyName,
+			CompanyNameEng: vnStock.CompanyNameEng,
+			ShortName:      vnStock.ShortName,
+			ShortNameEng:   vnStock.ShortNameEng,
+			ListedDate:     vnStock.ListedDate,
+			DelistedDate:   vnStock.DelistedDate,
+			CompanyID:      vnStock.CompanyID,
+			TaxCode:        vnStock.TaxCode,
+			IsActive:       vnStock.Status == "listed",
+			LastSyncAt:     &now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
 		}
 	}
-
-	return total, nil
 }
 
-// GetStockStats returns statistics about stocks
-func (c *SupabaseDBClient) GetStockStats() (map[string]interface{}, error) {
-	stats := make(map[string]interface{})
+// Delete removes a stock by code
+func (s *InMemoryStockStore) Delete(code string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// Get total count
-	total, err := c.GetStockCount()
-	if err != nil {
-		return nil, err
+	code = strings.ToUpper(code)
+	if _, exists := s.stocks[code]; !exists {
+		return errors.New("stock not found")
 	}
-	stats["total"] = total
-
-	// Get count by floor
-	floors := []string{"HOSE", "HNX", "UPCOM"}
-	floorCounts := make(map[string]int64)
-
-	for _, floor := range floors {
-		floorURL := fmt.Sprintf("%s/rest/v1/stocks?floor=eq.%s&select=count", c.URL, floor)
-		floorReq, _ := http.NewRequest("GET", floorURL, nil)
-		floorReq.Header.Set("apikey", c.getAPIKey())
-		floorReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
-		floorReq.Header.Set("Prefer", "count=exact")
-
-		floorResp, err := c.httpClient.Do(floorReq)
-		if err == nil {
-			defer floorResp.Body.Close()
-			contentRange := floorResp.Header.Get("Content-Range")
-			if contentRange != "" {
-				var count int64
-				fmt.Sscanf(contentRange, "*/%d", &count)
-				floorCounts[floor] = count
-			}
-		}
-	}
-	stats["by_floor"] = floorCounts
-
-	return stats, nil
-}
-
-// UpsertStock creates or updates a stock in Supabase
-func (c *SupabaseDBClient) UpsertStock(stock *VNDirectStock) error {
-	queryURL := fmt.Sprintf("%s/rest/v1/stocks", c.URL)
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	stockData := map[string]interface{}{
-		"code":             stock.Code,
-		"type":             stock.Type,
-		"floor":            stock.Floor,
-		"isin":             stock.ISIN,
-		"status":           stock.Status,
-		"company_name":     stock.CompanyName,
-		"company_name_eng": stock.CompanyNameEng,
-		"short_name":       stock.ShortName,
-		"short_name_eng":   stock.ShortNameEng,
-		"listed_date":      stock.ListedDate,
-		"delisted_date":    stock.DelistedDate,
-		"company_id":       stock.CompanyID,
-		"tax_code":         stock.TaxCode,
-		"is_active":        stock.Status == "listed",
-		"last_sync_at":     now,
-		"updated_at":       now,
-	}
-
-	payload, err := json.Marshal(stockData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal stock data: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", queryURL, bytes.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("apikey", c.getAPIKey())
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Prefer", "resolution=merge-duplicates")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(body))
-	}
-
+	delete(s.stocks, code)
 	return nil
 }
 
-// SyncStocksFromVNDirect syncs stocks from VNDirect API to Supabase
-func (c *SupabaseDBClient) SyncStocksFromVNDirect() (*StockSyncResult, error) {
+// GetStats returns statistics about stocks
+func (s *InMemoryStockStore) GetStats() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	stats := make(map[string]interface{})
+	stats["total"] = len(s.stocks)
+
+	floorCounts := map[string]int64{
+		"HOSE":  0,
+		"HNX":   0,
+		"UPCOM": 0,
+	}
+
+	for _, stock := range s.stocks {
+		if count, ok := floorCounts[stock.Floor]; ok {
+			floorCounts[stock.Floor] = count + 1
+		}
+	}
+
+	stats["by_floor"] = floorCounts
+	return stats
+}
+
+// GetLastSyncTime returns the last sync time
+func (s *InMemoryStockStore) GetLastSyncTime() *time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastSyncAt
+}
+
+// SetLastSyncTime sets the last sync time
+func (s *InMemoryStockStore) SetLastSyncTime(t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastSyncAt = &t
+}
+
+// Count returns the number of stocks
+func (s *InMemoryStockStore) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.stocks)
+}
+
+// SyncFromVNDirect syncs stocks from VNDirect API
+func (s *InMemoryStockStore) SyncFromVNDirect() (*StockSyncResult, error) {
 	result := &StockSyncResult{
 		Errors:   []string{},
 		SyncedAt: time.Now().UTC().Format(time.RFC3339),
@@ -376,86 +363,66 @@ func (c *SupabaseDBClient) SyncStocksFromVNDirect() (*StockSyncResult, error) {
 
 	result.TotalFetched = len(stocks)
 
+	// Get existing count before sync
+	existingCount := s.Count()
+
 	// Upsert each stock
 	for _, stock := range stocks {
-		// Check if stock exists
-		existing, _ := c.GetStockByCode(stock.Code)
+		_, exists := s.stocks[strings.ToUpper(stock.Code)]
+		s.Upsert(&stock)
 
-		err := c.UpsertStock(&stock)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", stock.Code, err))
-			continue
-		}
-
-		if existing == nil {
+		if !exists {
 			result.Created++
 		} else {
 			result.Updated++
 		}
 	}
 
+	// Update last sync time
+	s.SetLastSyncTime(time.Now())
+
+	// If this was first sync, all are created
+	if existingCount == 0 {
+		result.Created = result.TotalFetched
+		result.Updated = 0
+	}
+
 	return result, nil
+}
+
+// === Wrapper methods for SupabaseDBClient compatibility ===
+
+// GetStocks fetches stocks (wrapper for compatibility)
+func (c *SupabaseDBClient) GetStocks(page, pageSize int, search, floor, sortBy, sortOrder string) (*StockListResponse, error) {
+	return GlobalStockStore.GetStocks(page, pageSize, search, floor, sortBy, sortOrder), nil
+}
+
+// GetStockByCode fetches a single stock by code
+func (c *SupabaseDBClient) GetStockByCode(code string) (*Stock, error) {
+	return GlobalStockStore.GetByCode(code)
+}
+
+// GetStockCount returns the total count of stocks
+func (c *SupabaseDBClient) GetStockCount() (int64, error) {
+	return int64(GlobalStockStore.Count()), nil
+}
+
+// GetStockStats returns statistics about stocks
+func (c *SupabaseDBClient) GetStockStats() (map[string]interface{}, error) {
+	return GlobalStockStore.GetStats(), nil
+}
+
+// SyncStocksFromVNDirect syncs stocks from VNDirect API
+func (c *SupabaseDBClient) SyncStocksFromVNDirect() (*StockSyncResult, error) {
+	return GlobalStockStore.SyncFromVNDirect()
 }
 
 // DeleteStock deletes a stock by code
 func (c *SupabaseDBClient) DeleteStock(code string) error {
-	queryURL := fmt.Sprintf("%s/rest/v1/stocks?code=eq.%s", c.URL, url.QueryEscape(code))
-
-	req, err := http.NewRequest("DELETE", queryURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("apikey", c.getAPIKey())
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return GlobalStockStore.Delete(code)
 }
 
 // GetLastSyncTime returns the last sync time for stocks
 func (c *SupabaseDBClient) GetLastSyncTime() (*time.Time, error) {
-	queryURL := fmt.Sprintf("%s/rest/v1/stocks?select=last_sync_at&order=last_sync_at.desc&limit=1", c.URL)
-
-	req, err := http.NewRequest("GET", queryURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("apikey", c.getAPIKey())
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var results []struct {
-		LastSyncAt *time.Time `json:"last_sync_at"`
-	}
-	if err := json.Unmarshal(body, &results); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if len(results) == 0 || results[0].LastSyncAt == nil {
-		return nil, nil
-	}
-
-	return results[0].LastSyncAt, nil
+	return GlobalStockStore.GetLastSyncTime(), nil
 }
