@@ -1,7 +1,6 @@
 package services
 
 import (
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -142,7 +141,15 @@ func FetchPricesFromTCBS(tickers []string) ([]TCBSPriceData, error) {
 		return nil, nil
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Create custom transport to skip compression handling issues
+	transport := &http.Transport{
+		DisableCompression: true,
+	}
+	client := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+	}
+
 	url := TCBSPriceAPIURL + strings.Join(tickers, ",")
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -150,21 +157,14 @@ func FetchPricesFromTCBS(tickers []string) ([]TCBSPriceData, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set comprehensive headers to simulate real browser request from tcinvest.tcbs.com.vn
+	// Set headers - simpler approach without compression
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	req.Header.Set("Origin", "https://tcinvest.tcbs.com.vn")
 	req.Header.Set("Referer", "https://tcinvest.tcbs.com.vn/")
-	req.Header.Set("Sec-Ch-Ua", "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"")
-	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
-	req.Header.Set("Sec-Ch-Ua-Platform", "\"Windows\"")
-	req.Header.Set("Sec-Fetch-Dest", "empty")
-	req.Header.Set("Sec-Fetch-Mode", "cors")
-	req.Header.Set("Sec-Fetch-Site", "same-site")
-	req.Header.Set("Connection", "keep-alive")
-	req.Header.Set("DNT", "1")
+
+	log.Printf("TCBS API request: %s (tickers: %d)", url[:80]+"...", len(tickers))
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -182,18 +182,7 @@ func FetchPricesFromTCBS(tickers []string) ([]TCBSPriceData, error) {
 		return nil, fmt.Errorf("TCBS API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	// Handle gzip compressed response
-	var reader io.Reader = resp.Body
-	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gzReader, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
-		}
-		defer gzReader.Close()
-		reader = gzReader
-	}
-
-	body, err := io.ReadAll(reader)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
