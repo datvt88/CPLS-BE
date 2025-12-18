@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Management - CPLS Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: #2c3e50;
+        }
+        .sidebar a {
+            color: #ecf0f1;
+            text-decoration: none;
+            padding: 15px;
+            display: block;
+            transition: all 0.3s;
+        }
+        .sidebar a:hover {
+            background: #34495e;
+            padding-left: 25px;
+        }
+        .sidebar a.active {
+            background: #3498db;
+        }
+        .sidebar-section {
+            color: #95a5a6;
+            font-size: 0.8rem;
+            padding: 10px 15px 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .stat-card {
+            border-left: 4px solid #3498db;
+            transition: transform 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        .badge-hose { background: #e74c3c; }
+        .badge-hnx { background: #3498db; }
+        .badge-upcom { background: #27ae60; }
+        .table-hover tbody tr:hover {
+            background-color: rgba(52, 152, 219, 0.1);
+        }
+        .stock-code {
+            font-weight: bold;
+            color: #2c3e50;
+            font-family: monospace;
+            font-size: 1.1em;
+        }
+        .search-box {
+            max-width: 300px;
+        }
+        .sync-info {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        .floor-filter .btn {
+            min-width: 80px;
+        }
+        .floor-filter .btn.active {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar px-0">
+                <div class="text-center py-4">
+                    <h4 class="text-white">CPLS Admin</h4>
+                    <p class="text-muted small">Stock Trading System</p>
+                </div>
+                <nav>
+                    <a href="/admin">
+                        <i class="bi bi-speedometer2"></i> Dashboard
+                    </a>
+
+                    <div class="sidebar-section">User Management</div>
+                    <a href="/admin/users">
+                        <i class="bi bi-people"></i> Users
+                    </a>
+
+                    <div class="sidebar-section">Stock Data</div>
+                    <a href="/admin/stocks" class="active">
+                        <i class="bi bi-graph-up"></i> Stocks
+                    </a>
+
+                    <div class="sidebar-section">System</div>
+                    <a href="/api/v1/health/db" target="_blank">
+                        <i class="bi bi-database"></i> DB Health
+                    </a>
+                    <a href="/health" target="_blank">
+                        <i class="bi bi-heart-pulse"></i> Health Check
+                    </a>
+                    <hr class="text-white">
+                    <a href="/admin/logout" class="text-danger">
+                        <i class="bi bi-box-arrow-right"></i> Logout
+                    </a>
+                </nav>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-10">
+                <nav class="navbar navbar-light bg-light mb-4">
+                    <div class="container-fluid">
+                        <span class="navbar-brand mb-0 h1"><i class="bi bi-graph-up"></i> Stock Management</span>
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-info me-3">Supabase Mode</span>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-person-circle"></i> {{ .AdminUser }}
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item text-danger" href="/admin/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+
+                <div class="container-fluid">
+                    {{ if .Error }}
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i> {{ .Error }}
+                    </div>
+                    {{ end }}
+
+                    <!-- Stats Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card stat-card">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">Total Stocks</h6>
+                                    <h2 class="card-title" id="stat-total">{{ if .Stats }}{{ .Stats.total }}{{ else }}0{{ end }}</h2>
+                                    <p class="card-text text-muted"><i class="bi bi-collection"></i> Listed</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card stat-card" style="border-left-color: #e74c3c;">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">HOSE</h6>
+                                    <h2 class="card-title text-danger">{{ if .Stats }}{{ index .Stats.by_floor "HOSE" }}{{ else }}0{{ end }}</h2>
+                                    <p class="card-text text-muted"><i class="bi bi-building"></i> Ho Chi Minh</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card stat-card" style="border-left-color: #3498db;">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">HNX</h6>
+                                    <h2 class="card-title text-primary">{{ if .Stats }}{{ index .Stats.by_floor "HNX" }}{{ else }}0{{ end }}</h2>
+                                    <p class="card-text text-muted"><i class="bi bi-building"></i> Ha Noi</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card stat-card" style="border-left-color: #27ae60;">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">UPCOM</h6>
+                                    <h2 class="card-title text-success">{{ if .Stats }}{{ index .Stats.by_floor "UPCOM" }}{{ else }}0{{ end }}</h2>
+                                    <p class="card-text text-muted"><i class="bi bi-building"></i> Unlisted</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Bar -->
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-4">
+                                    <form method="GET" action="/admin/stocks" class="d-flex" id="searchForm">
+                                        <input type="text" name="search" class="form-control search-box me-2"
+                                               placeholder="Search by code or name..." value="{{ .Search }}" id="searchInput">
+                                        <input type="hidden" name="floor" value="{{ .Floor }}" id="floorInput">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="bi bi-search"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="btn-group floor-filter" role="group">
+                                        <button type="button" class="btn btn-outline-secondary {{ if eq .Floor "all" }}active{{ end }}" onclick="filterByFloor('all')">All</button>
+                                        <button type="button" class="btn btn-outline-danger {{ if eq .Floor "HOSE" }}active{{ end }}" onclick="filterByFloor('HOSE')">HOSE</button>
+                                        <button type="button" class="btn btn-outline-primary {{ if eq .Floor "HNX" }}active{{ end }}" onclick="filterByFloor('HNX')">HNX</button>
+                                        <button type="button" class="btn btn-outline-success {{ if eq .Floor "UPCOM" }}active{{ end }}" onclick="filterByFloor('UPCOM')">UPCOM</button>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <button class="btn btn-success me-2" onclick="syncStocks()" id="syncBtn">
+                                        <i class="bi bi-arrow-repeat"></i> Sync from VNDirect
+                                    </button>
+                                    <a href="/admin/api/stocks/export?floor={{ .Floor }}" class="btn btn-secondary">
+                                        <i class="bi bi-download"></i> Export
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="row mt-2">
+                                <div class="col-12">
+                                    <span class="sync-info">
+                                        <i class="bi bi-clock"></i> Last sync:
+                                        {{ if .LastSync }}
+                                            <span id="lastSyncTime">{{ .LastSync.Format "2006-01-02 15:04:05" }}</span>
+                                        {{ else }}
+                                            <span id="lastSyncTime" class="text-warning">Never synced</span>
+                                        {{ end }}
+                                        | Auto sync: Daily at 8:00 AM
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stocks Table -->
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0"><i class="bi bi-table"></i> Stock List ({{ .Total }} results)</h5>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Code</th>
+                                            <th>Company Name</th>
+                                            <th>Short Name</th>
+                                            <th>Floor</th>
+                                            <th>Status</th>
+                                            <th>Listed Date</th>
+                                            <th class="text-center">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{ range .Stocks }}
+                                        <tr>
+                                            <td>
+                                                <span class="stock-code">{{ .Code }}</span>
+                                            </td>
+                                            <td>
+                                                <div>{{ .CompanyName }}</div>
+                                                <small class="text-muted">{{ .CompanyNameEng }}</small>
+                                            </td>
+                                            <td>{{ .ShortName }}</td>
+                                            <td>
+                                                {{ if eq .Floor "HOSE" }}
+                                                <span class="badge badge-hose">HOSE</span>
+                                                {{ else if eq .Floor "HNX" }}
+                                                <span class="badge badge-hnx">HNX</span>
+                                                {{ else }}
+                                                <span class="badge badge-upcom">UPCOM</span>
+                                                {{ end }}
+                                            </td>
+                                            <td>
+                                                {{ if .IsActive }}
+                                                <span class="badge bg-success">Active</span>
+                                                {{ else }}
+                                                <span class="badge bg-secondary">Inactive</span>
+                                                {{ end }}
+                                            </td>
+                                            <td>
+                                                <small>{{ .ListedDate }}</small>
+                                            </td>
+                                            <td class="text-center">
+                                                <button class="btn btn-sm btn-outline-primary" onclick="viewStock('{{ .Code }}')" title="View">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-danger" onclick="deleteStock('{{ .Code }}')" title="Delete">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {{ else }}
+                                        <tr>
+                                            <td colspan="7" class="text-center py-4 text-muted">
+                                                <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                                                <p class="mt-2">No stocks found. Click "Sync from VNDirect" to fetch stock data.</p>
+                                            </td>
+                                        </tr>
+                                        {{ end }}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Pagination -->
+                        {{ if gt .TotalPages 1 }}
+                        <div class="card-footer">
+                            <nav aria-label="Stock pagination">
+                                <ul class="pagination justify-content-center mb-0">
+                                    {{ if gt .Page 1 }}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ subtract .Page 1 }}&search={{ .Search }}&floor={{ .Floor }}">Previous</a>
+                                    </li>
+                                    {{ end }}
+
+                                    {{ range $i := iterate .TotalPages }}
+                                    {{ if lt $i 10 }}
+                                    <li class="page-item {{ if eq (add $i 1) $.Page }}active{{ end }}">
+                                        <a class="page-link" href="?page={{ add $i 1 }}&search={{ $.Search }}&floor={{ $.Floor }}">{{ add $i 1 }}</a>
+                                    </li>
+                                    {{ end }}
+                                    {{ end }}
+
+                                    {{ if gt .TotalPages 10 }}
+                                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ .TotalPages }}&search={{ .Search }}&floor={{ .Floor }}">{{ .TotalPages }}</a>
+                                    </li>
+                                    {{ end }}
+
+                                    {{ if lt .Page .TotalPages }}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ add .Page 1 }}&search={{ .Search }}&floor={{ .Floor }}">Next</a>
+                                    </li>
+                                    {{ end }}
+                                </ul>
+                            </nav>
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Stock Modal -->
+    <div class="modal fade" id="viewStockModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-graph-up"></i> Stock Details</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="viewStockContent">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2">Loading...</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Progress Modal -->
+    <div class="modal fade" id="syncModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="bi bi-arrow-repeat"></i> Syncing Stocks</h5>
+                </div>
+                <div class="modal-body text-center" id="syncContent">
+                    <div class="spinner-border text-success mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+                    <h5>Fetching stocks from VNDirect...</h5>
+                    <p class="text-muted">This may take a few moments.</p>
+                </div>
+                <div class="modal-footer" id="syncFooter" style="display: none;">
+                    <button type="button" class="btn btn-primary" onclick="location.reload()">Refresh Page</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        // Filter by floor
+        function filterByFloor(floor) {
+            document.getElementById('floorInput').value = floor;
+            document.getElementById('searchForm').submit();
+        }
+
+        // View stock details
+        function viewStock(code) {
+            const modal = new bootstrap.Modal(document.getElementById('viewStockModal'));
+            modal.show();
+
+            document.getElementById('viewStockContent').innerHTML = `
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2">Loading...</p>
+                </div>
+            `;
+
+            $.get('/admin/api/stocks/' + code, function(stock) {
+                let floorBadge = stock.floor === 'HOSE' ? 'badge-hose' :
+                                 (stock.floor === 'HNX' ? 'badge-hnx' : 'badge-upcom');
+
+                let html = `
+                    <div class="row">
+                        <div class="col-12 text-center mb-4">
+                            <h1 class="stock-code display-4">${stock.code}</h1>
+                            <span class="badge ${floorBadge} fs-6">${stock.floor}</span>
+                            ${stock.is_active ? '<span class="badge bg-success fs-6 ms-2">Active</span>' : '<span class="badge bg-secondary fs-6 ms-2">Inactive</span>'}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Company Information</h6>
+                            <table class="table table-sm">
+                                <tr><th>Company Name</th><td>${stock.company_name || '-'}</td></tr>
+                                <tr><th>Company Name (EN)</th><td>${stock.company_name_eng || '-'}</td></tr>
+                                <tr><th>Short Name</th><td>${stock.short_name || '-'}</td></tr>
+                                <tr><th>Short Name (EN)</th><td>${stock.short_name_eng || '-'}</td></tr>
+                                <tr><th>Tax Code</th><td>${stock.tax_code || '-'}</td></tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Stock Information</h6>
+                            <table class="table table-sm">
+                                <tr><th>ISIN</th><td><code>${stock.isin || '-'}</code></td></tr>
+                                <tr><th>Type</th><td>${stock.type || '-'}</td></tr>
+                                <tr><th>Status</th><td>${stock.status || '-'}</td></tr>
+                                <tr><th>Listed Date</th><td>${stock.listed_date || '-'}</td></tr>
+                                <tr><th>Delisted Date</th><td>${stock.delisted_date || '-'}</td></tr>
+                                <tr><th>Last Sync</th><td>${stock.last_sync_at ? new Date(stock.last_sync_at).toLocaleString() : '-'}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('viewStockContent').innerHTML = html;
+            }).fail(function(xhr) {
+                document.getElementById('viewStockContent').innerHTML = `
+                    <div class="alert alert-danger">Error loading stock: ${xhr.responseJSON?.error || 'Unknown error'}</div>
+                `;
+            });
+        }
+
+        // Sync stocks from VNDirect
+        function syncStocks() {
+            if (!confirm('Sync all stocks from VNDirect API? This may take a few moments.')) return;
+
+            const syncModal = new bootstrap.Modal(document.getElementById('syncModal'));
+            syncModal.show();
+
+            document.getElementById('syncBtn').disabled = true;
+
+            $.ajax({
+                url: '/admin/api/stocks/sync',
+                method: 'POST',
+                timeout: 300000, // 5 minutes timeout
+                success: function(response) {
+                    const result = response.result;
+                    document.getElementById('syncContent').innerHTML = `
+                        <div class="text-center">
+                            <i class="bi bi-check-circle text-success" style="font-size: 4rem;"></i>
+                            <h5 class="mt-3">Sync Completed!</h5>
+                            <div class="mt-3">
+                                <p class="mb-1"><strong>Total Fetched:</strong> ${result.total_fetched}</p>
+                                <p class="mb-1"><strong>Created:</strong> <span class="text-success">${result.created}</span></p>
+                                <p class="mb-1"><strong>Updated:</strong> <span class="text-primary">${result.updated}</span></p>
+                                ${result.errors && result.errors.length > 0 ?
+                                    `<p class="mb-1"><strong>Errors:</strong> <span class="text-danger">${result.errors.length}</span></p>` : ''}
+                            </div>
+                        </div>
+                    `;
+                    document.getElementById('syncFooter').style.display = 'flex';
+                },
+                error: function(xhr) {
+                    document.getElementById('syncContent').innerHTML = `
+                        <div class="text-center">
+                            <i class="bi bi-x-circle text-danger" style="font-size: 4rem;"></i>
+                            <h5 class="mt-3">Sync Failed</h5>
+                            <p class="text-danger">${xhr.responseJSON?.error || 'Unknown error occurred'}</p>
+                        </div>
+                    `;
+                    document.getElementById('syncFooter').style.display = 'flex';
+                    document.getElementById('syncBtn').disabled = false;
+                }
+            });
+        }
+
+        // Delete stock
+        function deleteStock(code) {
+            if (!confirm('Are you sure you want to delete stock: ' + code + '?')) return;
+
+            $.ajax({
+                url: '/admin/api/stocks/' + code,
+                method: 'DELETE',
+                success: function() {
+                    alert('Stock deleted successfully!');
+                    location.reload();
+                },
+                error: function(xhr) {
+                    alert('Error: ' + (xhr.responseJSON?.error || 'Unknown error'));
+                }
+            });
+        }
+
+        // Auto-complete search (optional enhancement)
+        let searchTimeout;
+        document.getElementById('searchInput').addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            const query = this.value;
+            if (query.length >= 2) {
+                searchTimeout = setTimeout(function() {
+                    // Could implement autocomplete here
+                }, 300);
+            }
+        });
+    </script>
+</body>
+</html>

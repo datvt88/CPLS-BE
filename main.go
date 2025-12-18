@@ -268,9 +268,10 @@ func setupAdminLoginRoutes(router *gin.Engine) {
 
 // setupSupabaseAdminRoutes sets up protected admin routes for Supabase mode
 func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAuthController) {
-	// Create user management controller
+	// Create controllers
 	supabaseClient := supabaseAuth.GetSupabaseClient()
 	userMgmtCtrl := admin.NewUserManagementController(supabaseClient)
+	stockCtrl := admin.NewStockController(supabaseClient)
 
 	adminRoutes := router.Group("/admin")
 	{
@@ -288,6 +289,9 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 
 			// User Management Pages
 			protected.GET("/users", userMgmtCtrl.ListUsers)
+
+			// Stock Management Pages
+			protected.GET("/stocks", stockCtrl.ListStocks)
 
 			// User Management API
 			userAPI := protected.Group("/api/users")
@@ -319,6 +323,17 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				userAPI.POST("/:id/subscription", userMgmtCtrl.UpdateSubscription)
 				userAPI.POST("/:id/reset-password", userMgmtCtrl.ResetPassword)
 				userAPI.POST("/:id/sync", userMgmtCtrl.SyncUser)
+			}
+
+			// Stock Management API
+			stockAPI := protected.Group("/api/stocks")
+			{
+				stockAPI.GET("/stats", stockCtrl.GetStats)
+				stockAPI.GET("/search", stockCtrl.SearchStocks)
+				stockAPI.GET("/export", stockCtrl.ExportStocks)
+				stockAPI.POST("/sync", stockCtrl.SyncStocks)
+				stockAPI.GET("/:code", stockCtrl.GetStock)
+				stockAPI.DELETE("/:code", stockCtrl.DeleteStock)
 			}
 		}
 	}
