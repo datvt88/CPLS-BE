@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +17,15 @@ import (
 
 // VNDirectAPIURL is the endpoint for fetching stock list
 const VNDirectAPIURL = "https://api-finfo.vndirect.com.vn/v4/stocks?q=type:stock~status:listed~floor:HOSE,HNX,UPCOM&size=9999"
+
+// StockDataFile is the path to persist stock data
+const StockDataFile = "data/stocks.json"
+
+// StockDataStore represents persisted stock data
+type StockDataStore struct {
+	LastSyncAt *time.Time `json:"last_sync_at"`
+	Stocks     []*Stock   `json:"stocks"`
+}
 
 // VNDirectResponse represents the response from VNDirect API
 type VNDirectResponse struct {
@@ -87,11 +99,87 @@ type InMemoryStockStore struct {
 // Global in-memory stock store
 var GlobalStockStore = NewInMemoryStockStore()
 
-// NewInMemoryStockStore creates a new in-memory stock store
+// NewInMemoryStockStore creates a new in-memory stock store and loads from file if exists
 func NewInMemoryStockStore() *InMemoryStockStore {
-	return &InMemoryStockStore{
+	store := &InMemoryStockStore{
 		stocks: make(map[string]*Stock),
 	}
+	// Try to load from file on startup
+	if err := store.LoadFromFile(); err != nil {
+		log.Printf("No existing stock data file or error loading: %v", err)
+	} else {
+		log.Printf("Loaded %d stocks from file", len(store.stocks))
+	}
+	return store
+}
+
+// SaveToFile saves all stocks to a JSON file
+func (s *InMemoryStockStore) SaveToFile() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Create data directory if not exists
+	dir := filepath.Dir(StockDataFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	// Convert map to slice
+	stocks := make([]*Stock, 0, len(s.stocks))
+	for _, stock := range s.stocks {
+		stocks = append(stocks, stock)
+	}
+
+	data := StockDataStore{
+		LastSyncAt: s.lastSyncAt,
+		Stocks:     stocks,
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal stock data: %w", err)
+	}
+
+	// Write to file
+	if err := os.WriteFile(StockDataFile, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write stock file: %w", err)
+	}
+
+	log.Printf("Saved %d stocks to %s", len(stocks), StockDataFile)
+	return nil
+}
+
+// LoadFromFile loads stocks from a JSON file
+func (s *InMemoryStockStore) LoadFromFile() error {
+	// Check if file exists
+	if _, err := os.Stat(StockDataFile); os.IsNotExist(err) {
+		return fmt.Errorf("stock data file not found: %s", StockDataFile)
+	}
+
+	// Read file
+	jsonData, err := os.ReadFile(StockDataFile)
+	if err != nil {
+		return fmt.Errorf("failed to read stock file: %w", err)
+	}
+
+	// Unmarshal JSON
+	var data StockDataStore
+	if err := json.Unmarshal(jsonData, &data); err != nil {
+		return fmt.Errorf("failed to unmarshal stock data: %w", err)
+	}
+
+	// Load into memory
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.stocks = make(map[string]*Stock)
+	for _, stock := range data.Stocks {
+		s.stocks[stock.Code] = stock
+	}
+	s.lastSyncAt = data.LastSyncAt
+
+	return nil
 }
 
 // FetchStocksFromVNDirect fetches stock list from VNDirect API
@@ -348,7 +436,7 @@ func (s *InMemoryStockStore) Count() int {
 	return len(s.stocks)
 }
 
-// SyncFromVNDirect syncs stocks from VNDirect API
+// SyncFromVNDirect syncs stocks from VNDirect API and saves to file
 func (s *InMemoryStockStore) SyncFromVNDirect() (*StockSyncResult, error) {
 	result := &StockSyncResult{
 		Errors:   []string{},
@@ -385,6 +473,12 @@ func (s *InMemoryStockStore) SyncFromVNDirect() (*StockSyncResult, error) {
 	if existingCount == 0 {
 		result.Created = result.TotalFetched
 		result.Updated = 0
+	}
+
+	// Save to file for persistence
+	if err := s.SaveToFile(); err != nil {
+		log.Printf("Warning: failed to save stocks to file: %v", err)
+		result.Errors = append(result.Errors, fmt.Sprintf("failed to save to file: %v", err))
 	}
 
 	return result, nil
