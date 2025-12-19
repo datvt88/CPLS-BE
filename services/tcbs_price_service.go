@@ -6,14 +6,25 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
-// TCBS API URL for stock prices - using SSI API as alternative (TCBS API returns 404)
+// SSI API URL for stock prices (TCBS API returns 404)
 const SSIPriceAPIURL = "https://iboard-query.ssi.com.vn/v2/stock/group/"
+
+// PriceDataFile is the path to persist price data
+const PriceDataFile = "data/prices.json"
+
+// PriceDataStore represents persisted price data
+type PriceDataStore struct {
+	LastSyncAt *time.Time    `json:"last_sync_at"`
+	Prices     []*StockPrice `json:"prices"`
+}
 
 // SSIPriceResponse represents the response from SSI API
 type SSIPriceResponse struct {
@@ -142,11 +153,87 @@ type InMemoryPriceStore struct {
 // Global in-memory price store
 var GlobalPriceStore = NewInMemoryPriceStore()
 
-// NewInMemoryPriceStore creates a new in-memory price store
+// NewInMemoryPriceStore creates a new in-memory price store and loads from file if exists
 func NewInMemoryPriceStore() *InMemoryPriceStore {
-	return &InMemoryPriceStore{
+	store := &InMemoryPriceStore{
 		prices: make(map[string]*StockPrice),
 	}
+	// Try to load from file on startup
+	if err := store.LoadFromFile(); err != nil {
+		log.Printf("No existing price data file or error loading: %v", err)
+	} else {
+		log.Printf("Loaded %d prices from file", len(store.prices))
+	}
+	return store
+}
+
+// SaveToFile saves all prices to a JSON file
+func (s *InMemoryPriceStore) SaveToFile() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Create data directory if not exists
+	dir := filepath.Dir(PriceDataFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	// Convert map to slice
+	prices := make([]*StockPrice, 0, len(s.prices))
+	for _, price := range s.prices {
+		prices = append(prices, price)
+	}
+
+	data := PriceDataStore{
+		LastSyncAt: s.lastSyncAt,
+		Prices:     prices,
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal price data: %w", err)
+	}
+
+	// Write to file
+	if err := os.WriteFile(PriceDataFile, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write price file: %w", err)
+	}
+
+	log.Printf("Saved %d prices to %s", len(prices), PriceDataFile)
+	return nil
+}
+
+// LoadFromFile loads prices from a JSON file
+func (s *InMemoryPriceStore) LoadFromFile() error {
+	// Check if file exists
+	if _, err := os.Stat(PriceDataFile); os.IsNotExist(err) {
+		return fmt.Errorf("price data file not found: %s", PriceDataFile)
+	}
+
+	// Read file
+	jsonData, err := os.ReadFile(PriceDataFile)
+	if err != nil {
+		return fmt.Errorf("failed to read price file: %w", err)
+	}
+
+	// Unmarshal JSON
+	var data PriceDataStore
+	if err := json.Unmarshal(jsonData, &data); err != nil {
+		return fmt.Errorf("failed to unmarshal price data: %w", err)
+	}
+
+	// Load into memory
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.prices = make(map[string]*StockPrice)
+	for _, price := range data.Prices {
+		s.prices[price.Ticker] = price
+	}
+	s.lastSyncAt = data.LastSyncAt
+
+	return nil
 }
 
 // chunkSlice splits a slice into chunks of specified size
@@ -296,6 +383,12 @@ func (s *InMemoryPriceStore) SyncFromTCBS(chunkSize int, delayMs int) (*PriceSyn
 	s.mu.Lock()
 	s.lastSyncAt = &now
 	s.mu.Unlock()
+
+	// Save to file for persistence
+	if err := s.SaveToFile(); err != nil {
+		log.Printf("Warning: failed to save prices to file: %v", err)
+		result.Errors = append(result.Errors, fmt.Sprintf("failed to save to file: %v", err))
+	}
 
 	result.Duration = time.Since(startTime).String()
 	log.Printf("SSI sync completed: fetched=%d, duration=%s", result.Fetched, result.Duration)
