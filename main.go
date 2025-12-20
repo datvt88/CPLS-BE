@@ -349,6 +349,7 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				stockAPI.GET("/search", stockCtrl.SearchStocks)
 				stockAPI.GET("/export", stockCtrl.ExportStocks)
 				stockAPI.POST("/sync", stockCtrl.SyncStocks)
+				stockAPI.POST("/import", stockCtrl.ImportStocks)
 				stockAPI.GET("/:code", stockCtrl.GetStock)
 				stockAPI.DELETE("/:code", stockCtrl.DeleteStock)
 			}
