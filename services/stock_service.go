@@ -7,12 +7,17 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 // VNDirectAPIURL is the endpoint for fetching stock list
 const VNDirectAPIURL = "https://api-finfo.vndirect.com.vn/v4/stocks?q=type:stock~status:listed~floor:HOSE,HNX,UPCOM&size=9999"
+
+// StockSeedFile is the local seed file for stocks data
+const StockSeedFile = "data/stocks_seed.json"
 
 // VNDirectResponse represents the response from VNDirect API
 type VNDirectResponse struct {
@@ -78,7 +83,7 @@ type StockSyncResult struct {
 
 // FetchStocksFromVNDirect fetches stock list from VNDirect API
 func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second}
 
 	req, err := http.NewRequest("GET", VNDirectAPIURL, nil)
 	if err != nil {
@@ -90,13 +95,15 @@ func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch from VNDirect: %w", err)
+		log.Printf("VNDirect API error: %v, trying local seed file...", err)
+		return LoadStocksFromSeedFile()
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("VNDirect API error (status %d): %s", resp.StatusCode, string(body))
+		log.Printf("VNDirect API error (status %d): %s, trying local seed file...", resp.StatusCode, string(body))
+		return LoadStocksFromSeedFile()
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -110,7 +117,105 @@ func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 	}
 
 	log.Printf("VNDirect API fetched %d stocks", len(response.Data))
+
+	// Save to seed file for future offline use
+	go SaveStocksToSeedFile(response.Data)
+
 	return response.Data, nil
+}
+
+// LoadStocksFromSeedFile loads stocks from local seed JSON file
+func LoadStocksFromSeedFile() ([]VNDirectStock, error) {
+	data, err := os.ReadFile(StockSeedFile)
+	if err != nil {
+		return nil, fmt.Errorf("seed file not found: %w. Please provide data/stocks_seed.json", err)
+	}
+
+	var stocks []VNDirectStock
+	if err := json.Unmarshal(data, &stocks); err != nil {
+		return nil, fmt.Errorf("failed to parse seed file: %w", err)
+	}
+
+	log.Printf("Loaded %d stocks from seed file", len(stocks))
+	return stocks, nil
+}
+
+// SaveStocksToSeedFile saves stocks to local seed JSON file for offline use
+func SaveStocksToSeedFile(stocks []VNDirectStock) error {
+	dir := filepath.Dir(StockSeedFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	data, err := json.MarshalIndent(stocks, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal stocks: %w", err)
+	}
+
+	if err := os.WriteFile(StockSeedFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write seed file: %w", err)
+	}
+
+	log.Printf("Saved %d stocks to seed file", len(stocks))
+	return nil
+}
+
+// ImportStocksFromJSON imports stocks from provided JSON data
+func ImportStocksFromJSON(jsonData []byte) (*StockSyncResult, error) {
+	result := &StockSyncResult{
+		Errors:   []string{},
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if GlobalDuckDB == nil {
+		return nil, errors.New("DuckDB not initialized")
+	}
+
+	var stocks []VNDirectStock
+	if err := json.Unmarshal(jsonData, &stocks); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	result.TotalFetched = len(stocks)
+
+	// Upsert each stock to DuckDB
+	for _, stock := range stocks {
+		duckStock := &DuckDBStock{
+			Code:           strings.ToUpper(stock.Code),
+			Type:           stock.Type,
+			Floor:          stock.Floor,
+			ISIN:           stock.ISIN,
+			Status:         stock.Status,
+			CompanyName:    stock.CompanyName,
+			CompanyNameEng: stock.CompanyNameEng,
+			ShortName:      stock.ShortName,
+			ShortNameEng:   stock.ShortNameEng,
+			ListedDate:     stock.ListedDate,
+			DelistedDate:   stock.DelistedDate,
+			CompanyID:      stock.CompanyID,
+			TaxCode:        stock.TaxCode,
+			IsActive:       stock.Status == "listed",
+		}
+
+		if err := GlobalDuckDB.UpsertStock(duckStock); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("failed to upsert %s: %v", stock.Code, err))
+			continue
+		}
+		result.Created++
+	}
+
+	// Save to seed file for future use
+	SaveStocksToSeedFile(stocks)
+
+	// Save sync history
+	errStr := ""
+	if len(result.Errors) > 0 {
+		errStr = strings.Join(result.Errors, "; ")
+	}
+	GlobalDuckDB.SaveSyncHistory("stocks_import", result.TotalFetched, result.Created, 0, errStr)
+
+	log.Printf("Stock import completed: imported=%d, errors=%d", result.TotalFetched, len(result.Errors))
+	return result, nil
 }
 
 // SyncStocksFromVNDirectToDuckDB syncs stocks from VNDirect API to DuckDB

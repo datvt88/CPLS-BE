@@ -145,3 +145,39 @@ func (ctrl *StockController) ExportStocks(c *gin.Context) {
 	c.Header("Content-Disposition", "attachment; filename=stocks_export.json")
 	c.JSON(http.StatusOK, result.Stocks)
 }
+
+// ImportStocks handles POST /admin/api/stocks/import - imports stocks from JSON file
+func (ctrl *StockController) ImportStocks(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	// Open the file
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open file"})
+		return
+	}
+	defer f.Close()
+
+	// Read file content
+	data := make([]byte, file.Size)
+	if _, err := f.Read(data); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read file"})
+		return
+	}
+
+	// Import stocks
+	result, err := services.ImportStocksFromJSON(data)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Stocks imported successfully",
+		"result":  result,
+	})
+}
