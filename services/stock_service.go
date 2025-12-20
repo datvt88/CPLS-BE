@@ -7,25 +7,12 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
 // VNDirectAPIURL is the endpoint for fetching stock list
 const VNDirectAPIURL = "https://api-finfo.vndirect.com.vn/v4/stocks?q=type:stock~status:listed~floor:HOSE,HNX,UPCOM&size=9999"
-
-// StockDataFile is the path to persist stock data
-const StockDataFile = "data/stocks.json"
-
-// StockDataStore represents persisted stock data
-type StockDataStore struct {
-	LastSyncAt *time.Time `json:"last_sync_at"`
-	Stocks     []*Stock   `json:"stocks"`
-}
 
 // VNDirectResponse represents the response from VNDirect API
 type VNDirectResponse struct {
@@ -49,7 +36,7 @@ type VNDirectStock struct {
 	TaxCode        string `json:"taxCode"`
 }
 
-// Stock represents a stock in the in-memory storage
+// Stock represents a stock (compatible with existing code)
 type Stock struct {
 	ID             string     `json:"id"`
 	Code           string     `json:"code"`
@@ -89,99 +76,6 @@ type StockSyncResult struct {
 	SyncedAt     string   `json:"synced_at"`
 }
 
-// InMemoryStockStore stores stocks in memory
-type InMemoryStockStore struct {
-	mu         sync.RWMutex
-	stocks     map[string]*Stock // key = stock code
-	lastSyncAt *time.Time
-}
-
-// Global in-memory stock store
-var GlobalStockStore = NewInMemoryStockStore()
-
-// NewInMemoryStockStore creates a new in-memory stock store and loads from file if exists
-func NewInMemoryStockStore() *InMemoryStockStore {
-	store := &InMemoryStockStore{
-		stocks: make(map[string]*Stock),
-	}
-	// Try to load from file on startup
-	if err := store.LoadFromFile(); err != nil {
-		log.Printf("No existing stock data file or error loading: %v", err)
-	} else {
-		log.Printf("Loaded %d stocks from file", len(store.stocks))
-	}
-	return store
-}
-
-// SaveToFile saves all stocks to a JSON file
-func (s *InMemoryStockStore) SaveToFile() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Create data directory if not exists
-	dir := filepath.Dir(StockDataFile)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create data directory: %w", err)
-	}
-
-	// Convert map to slice
-	stocks := make([]*Stock, 0, len(s.stocks))
-	for _, stock := range s.stocks {
-		stocks = append(stocks, stock)
-	}
-
-	data := StockDataStore{
-		LastSyncAt: s.lastSyncAt,
-		Stocks:     stocks,
-	}
-
-	// Marshal to JSON
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal stock data: %w", err)
-	}
-
-	// Write to file
-	if err := os.WriteFile(StockDataFile, jsonData, 0644); err != nil {
-		return fmt.Errorf("failed to write stock file: %w", err)
-	}
-
-	log.Printf("Saved %d stocks to %s", len(stocks), StockDataFile)
-	return nil
-}
-
-// LoadFromFile loads stocks from a JSON file
-func (s *InMemoryStockStore) LoadFromFile() error {
-	// Check if file exists
-	if _, err := os.Stat(StockDataFile); os.IsNotExist(err) {
-		return fmt.Errorf("stock data file not found: %s", StockDataFile)
-	}
-
-	// Read file
-	jsonData, err := os.ReadFile(StockDataFile)
-	if err != nil {
-		return fmt.Errorf("failed to read stock file: %w", err)
-	}
-
-	// Unmarshal JSON
-	var data StockDataStore
-	if err := json.Unmarshal(jsonData, &data); err != nil {
-		return fmt.Errorf("failed to unmarshal stock data: %w", err)
-	}
-
-	// Load into memory
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.stocks = make(map[string]*Stock)
-	for _, stock := range data.Stocks {
-		s.stocks[stock.Code] = stock
-	}
-	s.lastSyncAt = data.LastSyncAt
-
-	return nil
-}
-
 // FetchStocksFromVNDirect fetches stock list from VNDirect API
 func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
@@ -215,232 +109,19 @@ func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
+	log.Printf("VNDirect API fetched %d stocks", len(response.Data))
 	return response.Data, nil
 }
 
-// GetAll returns all stocks
-func (s *InMemoryStockStore) GetAll() []Stock {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	stocks := make([]Stock, 0, len(s.stocks))
-	for _, stock := range s.stocks {
-		stocks = append(stocks, *stock)
-	}
-	return stocks
-}
-
-// GetStocks returns paginated stocks with search and filter
-func (s *InMemoryStockStore) GetStocks(page, pageSize int, search, floor, sortBy, sortOrder string) *StockListResponse {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 50
-	}
-
-	// Filter stocks
-	var filtered []Stock
-	searchLower := strings.ToLower(search)
-
-	for _, stock := range s.stocks {
-		// Floor filter
-		if floor != "" && floor != "all" && stock.Floor != floor {
-			continue
-		}
-
-		// Search filter
-		if search != "" {
-			codeLower := strings.ToLower(stock.Code)
-			nameLower := strings.ToLower(stock.CompanyName)
-			shortNameLower := strings.ToLower(stock.ShortName)
-
-			if !strings.Contains(codeLower, searchLower) &&
-				!strings.Contains(nameLower, searchLower) &&
-				!strings.Contains(shortNameLower, searchLower) {
-				continue
-			}
-		}
-
-		filtered = append(filtered, *stock)
-	}
-
-	// Sort stocks
-	sort.Slice(filtered, func(i, j int) bool {
-		var less bool
-		switch sortBy {
-		case "code":
-			less = filtered[i].Code < filtered[j].Code
-		case "floor":
-			less = filtered[i].Floor < filtered[j].Floor
-		case "company_name":
-			less = filtered[i].CompanyName < filtered[j].CompanyName
-		case "listed_date":
-			less = filtered[i].ListedDate < filtered[j].ListedDate
-		default:
-			less = filtered[i].Code < filtered[j].Code
-		}
-
-		if sortOrder == "desc" {
-			return !less
-		}
-		return less
-	})
-
-	// Pagination
-	total := int64(len(filtered))
-	totalPages := int(total) / pageSize
-	if int(total)%pageSize > 0 {
-		totalPages++
-	}
-
-	start := (page - 1) * pageSize
-	end := start + pageSize
-	if start > len(filtered) {
-		start = len(filtered)
-	}
-	if end > len(filtered) {
-		end = len(filtered)
-	}
-
-	return &StockListResponse{
-		Stocks:     filtered[start:end],
-		Total:      total,
-		Page:       page,
-		PageSize:   pageSize,
-		TotalPages: totalPages,
-	}
-}
-
-// GetByCode returns a stock by code
-func (s *InMemoryStockStore) GetByCode(code string) (*Stock, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	stock, exists := s.stocks[strings.ToUpper(code)]
-	if !exists {
-		return nil, errors.New("stock not found")
-	}
-	return stock, nil
-}
-
-// Upsert adds or updates a stock
-func (s *InMemoryStockStore) Upsert(vnStock *VNDirectStock) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now()
-	code := strings.ToUpper(vnStock.Code)
-
-	existing, exists := s.stocks[code]
-	if exists {
-		// Update existing
-		existing.Type = vnStock.Type
-		existing.Floor = vnStock.Floor
-		existing.ISIN = vnStock.ISIN
-		existing.Status = vnStock.Status
-		existing.CompanyName = vnStock.CompanyName
-		existing.CompanyNameEng = vnStock.CompanyNameEng
-		existing.ShortName = vnStock.ShortName
-		existing.ShortNameEng = vnStock.ShortNameEng
-		existing.ListedDate = vnStock.ListedDate
-		existing.DelistedDate = vnStock.DelistedDate
-		existing.CompanyID = vnStock.CompanyID
-		existing.TaxCode = vnStock.TaxCode
-		existing.IsActive = vnStock.Status == "listed"
-		existing.LastSyncAt = &now
-		existing.UpdatedAt = now
-	} else {
-		// Create new
-		s.stocks[code] = &Stock{
-			ID:             code,
-			Code:           code,
-			Type:           vnStock.Type,
-			Floor:          vnStock.Floor,
-			ISIN:           vnStock.ISIN,
-			Status:         vnStock.Status,
-			CompanyName:    vnStock.CompanyName,
-			CompanyNameEng: vnStock.CompanyNameEng,
-			ShortName:      vnStock.ShortName,
-			ShortNameEng:   vnStock.ShortNameEng,
-			ListedDate:     vnStock.ListedDate,
-			DelistedDate:   vnStock.DelistedDate,
-			CompanyID:      vnStock.CompanyID,
-			TaxCode:        vnStock.TaxCode,
-			IsActive:       vnStock.Status == "listed",
-			LastSyncAt:     &now,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		}
-	}
-}
-
-// Delete removes a stock by code
-func (s *InMemoryStockStore) Delete(code string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	code = strings.ToUpper(code)
-	if _, exists := s.stocks[code]; !exists {
-		return errors.New("stock not found")
-	}
-	delete(s.stocks, code)
-	return nil
-}
-
-// GetStats returns statistics about stocks
-func (s *InMemoryStockStore) GetStats() map[string]interface{} {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	stats := make(map[string]interface{})
-	stats["total"] = len(s.stocks)
-
-	floorCounts := map[string]int64{
-		"HOSE":  0,
-		"HNX":   0,
-		"UPCOM": 0,
-	}
-
-	for _, stock := range s.stocks {
-		if count, ok := floorCounts[stock.Floor]; ok {
-			floorCounts[stock.Floor] = count + 1
-		}
-	}
-
-	stats["by_floor"] = floorCounts
-	return stats
-}
-
-// GetLastSyncTime returns the last sync time
-func (s *InMemoryStockStore) GetLastSyncTime() *time.Time {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.lastSyncAt
-}
-
-// SetLastSyncTime sets the last sync time
-func (s *InMemoryStockStore) SetLastSyncTime(t time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.lastSyncAt = &t
-}
-
-// Count returns the number of stocks
-func (s *InMemoryStockStore) Count() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.stocks)
-}
-
-// SyncFromVNDirect syncs stocks from VNDirect API and saves to file
-func (s *InMemoryStockStore) SyncFromVNDirect() (*StockSyncResult, error) {
+// SyncStocksFromVNDirectToDuckDB syncs stocks from VNDirect API to DuckDB
+func SyncStocksFromVNDirectToDuckDB() (*StockSyncResult, error) {
 	result := &StockSyncResult{
 		Errors:   []string{},
 		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if GlobalDuckDB == nil {
+		return nil, errors.New("DuckDB not initialized")
 	}
 
 	// Fetch stocks from VNDirect
@@ -451,72 +132,186 @@ func (s *InMemoryStockStore) SyncFromVNDirect() (*StockSyncResult, error) {
 
 	result.TotalFetched = len(stocks)
 
-	// Get existing count before sync
-	existingCount := s.Count()
+	// Get existing count
+	existingCount, _ := GlobalDuckDB.GetStockCount()
 
-	// Upsert each stock
+	// Upsert each stock to DuckDB
 	for _, stock := range stocks {
-		_, exists := s.stocks[strings.ToUpper(stock.Code)]
-		s.Upsert(&stock)
+		duckStock := &DuckDBStock{
+			Code:           strings.ToUpper(stock.Code),
+			Type:           stock.Type,
+			Floor:          stock.Floor,
+			ISIN:           stock.ISIN,
+			Status:         stock.Status,
+			CompanyName:    stock.CompanyName,
+			CompanyNameEng: stock.CompanyNameEng,
+			ShortName:      stock.ShortName,
+			ShortNameEng:   stock.ShortNameEng,
+			ListedDate:     stock.ListedDate,
+			DelistedDate:   stock.DelistedDate,
+			CompanyID:      stock.CompanyID,
+			TaxCode:        stock.TaxCode,
+			IsActive:       stock.Status == "listed",
+		}
 
-		if !exists {
+		if err := GlobalDuckDB.UpsertStock(duckStock); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("failed to upsert %s: %v", stock.Code, err))
+			continue
+		}
+
+		// Count created vs updated
+		if existingCount == 0 {
 			result.Created++
 		} else {
 			result.Updated++
 		}
 	}
 
-	// Update last sync time
-	s.SetLastSyncTime(time.Now())
-
-	// If this was first sync, all are created
-	if existingCount == 0 {
-		result.Created = result.TotalFetched
-		result.Updated = 0
+	// Save sync history
+	errStr := ""
+	if len(result.Errors) > 0 {
+		errStr = strings.Join(result.Errors, "; ")
 	}
+	GlobalDuckDB.SaveSyncHistory("stocks", result.TotalFetched, result.Created, result.Updated, errStr)
 
-	// Save to file for persistence
-	if err := s.SaveToFile(); err != nil {
-		log.Printf("Warning: failed to save stocks to file: %v", err)
-		result.Errors = append(result.Errors, fmt.Sprintf("failed to save to file: %v", err))
-	}
+	log.Printf("Stock sync completed: fetched=%d, created=%d, updated=%d, errors=%d",
+		result.TotalFetched, result.Created, result.Updated, len(result.Errors))
 
 	return result, nil
 }
 
 // === Wrapper methods for SupabaseDBClient compatibility ===
 
-// GetStocks fetches stocks (wrapper for compatibility)
+// GetStocks fetches stocks from DuckDB (wrapper for compatibility)
 func (c *SupabaseDBClient) GetStocks(page, pageSize int, search, floor, sortBy, sortOrder string) (*StockListResponse, error) {
-	return GlobalStockStore.GetStocks(page, pageSize, search, floor, sortBy, sortOrder), nil
+	if GlobalDuckDB == nil {
+		return &StockListResponse{Stocks: []Stock{}, Total: 0, Page: page, PageSize: pageSize, TotalPages: 0}, nil
+	}
+
+	stocks, total, err := GlobalDuckDB.GetStocksPaginated(page, pageSize, search, floor, sortBy, sortOrder)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert DuckDBStock to Stock
+	result := make([]Stock, len(stocks))
+	for i, s := range stocks {
+		result[i] = Stock{
+			ID:             s.Code,
+			Code:           s.Code,
+			Type:           s.Type,
+			Floor:          s.Floor,
+			ISIN:           s.ISIN,
+			Status:         s.Status,
+			CompanyName:    s.CompanyName,
+			CompanyNameEng: s.CompanyNameEng,
+			ShortName:      s.ShortName,
+			ShortNameEng:   s.ShortNameEng,
+			ListedDate:     s.ListedDate,
+			DelistedDate:   s.DelistedDate,
+			CompanyID:      s.CompanyID,
+			TaxCode:        s.TaxCode,
+			IsActive:       s.IsActive,
+			CreatedAt:      s.CreatedAt,
+			UpdatedAt:      s.UpdatedAt,
+			LastSyncAt:     s.LastSyncAt,
+		}
+	}
+
+	totalPages := int(total) / pageSize
+	if int(total)%pageSize > 0 {
+		totalPages++
+	}
+
+	return &StockListResponse{
+		Stocks:     result,
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+	}, nil
 }
 
-// GetStockByCode fetches a single stock by code
+// GetStockByCode fetches a single stock by code from DuckDB
 func (c *SupabaseDBClient) GetStockByCode(code string) (*Stock, error) {
-	return GlobalStockStore.GetByCode(code)
+	if GlobalDuckDB == nil {
+		return nil, errors.New("DuckDB not initialized")
+	}
+
+	s, err := GlobalDuckDB.GetStockByCode(code)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Stock{
+		ID:             s.Code,
+		Code:           s.Code,
+		Type:           s.Type,
+		Floor:          s.Floor,
+		ISIN:           s.ISIN,
+		Status:         s.Status,
+		CompanyName:    s.CompanyName,
+		CompanyNameEng: s.CompanyNameEng,
+		ShortName:      s.ShortName,
+		ShortNameEng:   s.ShortNameEng,
+		ListedDate:     s.ListedDate,
+		DelistedDate:   s.DelistedDate,
+		CompanyID:      s.CompanyID,
+		TaxCode:        s.TaxCode,
+		IsActive:       s.IsActive,
+		CreatedAt:      s.CreatedAt,
+		UpdatedAt:      s.UpdatedAt,
+		LastSyncAt:     s.LastSyncAt,
+	}, nil
 }
 
-// GetStockCount returns the total count of stocks
+// GetStockCount returns the total count of stocks from DuckDB
 func (c *SupabaseDBClient) GetStockCount() (int64, error) {
-	return int64(GlobalStockStore.Count()), nil
+	if GlobalDuckDB == nil {
+		return 0, nil
+	}
+	return GlobalDuckDB.GetStockCount()
 }
 
-// GetStockStats returns statistics about stocks
+// GetStockStats returns statistics about stocks from DuckDB
 func (c *SupabaseDBClient) GetStockStats() (map[string]interface{}, error) {
-	return GlobalStockStore.GetStats(), nil
+	if GlobalDuckDB == nil {
+		return map[string]interface{}{"total": 0, "by_floor": map[string]int64{}}, nil
+	}
+
+	total, err := GlobalDuckDB.GetStockCount()
+	if err != nil {
+		return nil, err
+	}
+
+	byFloor, err := GlobalDuckDB.GetStockCountByFloor()
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"total":    total,
+		"by_floor": byFloor,
+	}, nil
 }
 
-// SyncStocksFromVNDirect syncs stocks from VNDirect API
+// SyncStocksFromVNDirect syncs stocks from VNDirect API to DuckDB
 func (c *SupabaseDBClient) SyncStocksFromVNDirect() (*StockSyncResult, error) {
-	return GlobalStockStore.SyncFromVNDirect()
+	return SyncStocksFromVNDirectToDuckDB()
 }
 
-// DeleteStock deletes a stock by code
+// DeleteStock deletes a stock by code from DuckDB
 func (c *SupabaseDBClient) DeleteStock(code string) error {
-	return GlobalStockStore.Delete(code)
+	if GlobalDuckDB == nil {
+		return errors.New("DuckDB not initialized")
+	}
+	return GlobalDuckDB.DeleteStock(code)
 }
 
-// GetLastSyncTime returns the last sync time for stocks
+// GetLastSyncTime returns the last sync time for stocks from DuckDB
 func (c *SupabaseDBClient) GetLastSyncTime() (*time.Time, error) {
-	return GlobalStockStore.GetLastSyncTime(), nil
+	if GlobalDuckDB == nil {
+		return nil, nil
+	}
+	return GlobalDuckDB.GetLastSyncTime("stocks")
 }
