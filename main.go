@@ -110,6 +110,11 @@ func main() {
 		globalScheduler.Stop()
 	}
 
+	// Stop Stock Scheduler
+	if services.GlobalStockScheduler != nil {
+		services.GlobalStockScheduler.Stop()
+	}
+
 	// Close DuckDB connection
 	if services.GlobalDuckDB != nil {
 		if err := services.GlobalDuckDB.Close(); err != nil {
@@ -174,6 +179,13 @@ func initSupabaseOnly(router *gin.Engine) {
 		log.Printf("Warning: Failed to initialize DuckDB: %v", err)
 	} else {
 		log.Println("DuckDB initialized successfully")
+	}
+
+	// Initialize Stock Scheduler
+	if err := services.InitStockScheduler(); err != nil {
+		log.Printf("Warning: Failed to initialize Stock Scheduler: %v", err)
+	} else {
+		log.Println("Stock Scheduler initialized successfully")
 	}
 
 	// Setup protected admin routes
@@ -350,6 +362,8 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				stockAPI.GET("/export", stockCtrl.ExportStocks)
 				stockAPI.POST("/sync", stockCtrl.SyncStocks)
 				stockAPI.POST("/import", stockCtrl.ImportStocks)
+				stockAPI.GET("/scheduler", stockCtrl.GetSchedulerConfig)
+				stockAPI.PUT("/scheduler", stockCtrl.UpdateSchedulerConfig)
 				stockAPI.GET("/:code", stockCtrl.GetStock)
 				stockAPI.DELETE("/:code", stockCtrl.DeleteStock)
 			}

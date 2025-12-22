@@ -181,3 +181,57 @@ func (ctrl *StockController) ImportStocks(c *gin.Context) {
 		"result":  result,
 	})
 }
+
+// GetSchedulerConfig handles GET /admin/api/stocks/scheduler - returns scheduler config
+func (ctrl *StockController) GetSchedulerConfig(c *gin.Context) {
+	if services.GlobalStockScheduler == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Scheduler not initialized"})
+		return
+	}
+
+	config := services.GlobalStockScheduler.GetConfig()
+	c.JSON(http.StatusOK, gin.H{
+		"enabled":       config.Enabled,
+		"schedule_time": config.ScheduleTime,
+		"last_run":      config.LastRun,
+		"next_run":      config.NextRun,
+		"is_running":    services.GlobalStockScheduler.IsRunning(),
+	})
+}
+
+// UpdateSchedulerConfig handles PUT /admin/api/stocks/scheduler - updates scheduler config
+func (ctrl *StockController) UpdateSchedulerConfig(c *gin.Context) {
+	if services.GlobalStockScheduler == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Scheduler not initialized"})
+		return
+	}
+
+	var req struct {
+		Enabled      bool   `json:"enabled"`
+		ScheduleTime string `json:"schedule_time"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate schedule time format (HH:MM)
+	if len(req.ScheduleTime) < 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schedule time format. Use HH:MM"})
+		return
+	}
+
+	if err := services.GlobalStockScheduler.UpdateConfig(req.Enabled, req.ScheduleTime); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	config := services.GlobalStockScheduler.GetConfig()
+	c.JSON(http.StatusOK, gin.H{
+		"message":       "Scheduler updated successfully",
+		"enabled":       config.Enabled,
+		"schedule_time": config.ScheduleTime,
+		"next_run":      config.NextRun,
+	})
+}
