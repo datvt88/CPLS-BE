@@ -270,8 +270,8 @@ func CalculateIndicatorsForStock(priceFile *StockPriceFile) *ExtendedStockIndica
 	// MACD
 	indicators.MACD, indicators.MACDSignal, indicators.MACDHist = CalculateMACD(closePrices)
 
-	// Average Volume (20-day)
-	indicators.AvgVol = CalculateAvgVolume(volumes, 20)
+	// Average Volume (5-day)
+	indicators.AvgVol = CalculateAvgVolume(volumes, 5)
 	if indicators.AvgVol > 0 && volumes[0] > 0 {
 		indicators.VolRatio = math.Round((volumes[0]/indicators.AvgVol)*100) / 100
 	}
