@@ -450,14 +450,18 @@ func (c *DuckDBClient) GetLastSyncTime(syncType string) (*time.Time, error) {
 
 // ==================== Stock Price History ====================
 
-// CreatePriceHistoryTable creates the price history table
+// CreatePriceHistoryTable creates the price history table with optimizations
 func (c *DuckDBClient) CreatePriceHistoryTable() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Enable WAL mode for better concurrent performance
+	c.db.Exec("PRAGMA journal_mode=WAL")
+	c.db.Exec("PRAGMA synchronous=NORMAL")
+	c.db.Exec("PRAGMA cache_size=10000") // 10MB cache
+
 	query := `
 		CREATE TABLE IF NOT EXISTS stock_price_history (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			code VARCHAR NOT NULL,
 			date VARCHAR NOT NULL,
 			open REAL,
@@ -466,36 +470,41 @@ func (c *DuckDBClient) CreatePriceHistoryTable() error {
 			close REAL,
 			volume REAL,
 			value REAL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(code, date)
+			PRIMARY KEY (code, date)
 		)
 	`
 	if _, err := c.db.Exec(query); err != nil {
 		return fmt.Errorf("failed to create stock_price_history table: %w", err)
 	}
 
-	// Create indexes
-	c.db.Exec("CREATE INDEX IF NOT EXISTS idx_price_history_code ON stock_price_history(code)")
-	c.db.Exec("CREATE INDEX IF NOT EXISTS idx_price_history_date ON stock_price_history(date DESC)")
+	// Composite index for common queries (code + date DESC)
+	c.db.Exec("CREATE INDEX IF NOT EXISTS idx_price_code_date ON stock_price_history(code, date DESC)")
 
-	log.Println("stock_price_history table created/verified")
+	log.Println("stock_price_history table created/verified (optimized)")
 	return nil
 }
 
-// SavePriceHistory saves price history for a stock
+// SavePriceHistory saves price history for a stock using transactions
 func (c *DuckDBClient) SavePriceHistory(code string, prices []StockPriceData) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Use transaction for better performance
+	tx, err := c.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Delete existing prices for this code
-	_, err := c.db.Exec("DELETE FROM stock_price_history WHERE code = ?", code)
+	_, err = tx.Exec("DELETE FROM stock_price_history WHERE code = ?", code)
 	if err != nil {
 		return fmt.Errorf("failed to delete old prices: %w", err)
 	}
 
-	// Insert new prices
-	stmt, err := c.db.Prepare(`
-		INSERT INTO stock_price_history (code, date, open, high, low, close, volume, value)
+	// Use INSERT OR REPLACE for upsert
+	stmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO stock_price_history (code, date, open, high, low, close, volume, value)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
@@ -510,7 +519,7 @@ func (c *DuckDBClient) SavePriceHistory(code string, prices []StockPriceData) er
 		}
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // LoadPriceHistory loads price history for a stock
