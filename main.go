@@ -75,6 +75,9 @@ func main() {
 		log.Printf("Warning: Failed to load templates: %v", err)
 	}
 
+	// Initialize local services (always run, regardless of auth mode)
+	initLocalServices()
+
 	// Initialize connection BEFORE starting server
 	initializeConnection(router)
 
@@ -129,6 +132,41 @@ func main() {
 	server.Shutdown(ctx)
 }
 
+// initLocalServices initializes local services (DuckDB, Price, Indicators) - always runs
+func initLocalServices() {
+	log.Println("Initializing local services...")
+
+	// Initialize DuckDB for local data storage
+	if err := services.InitDuckDB(); err != nil {
+		log.Printf("Warning: Failed to initialize DuckDB: %v", err)
+	} else {
+		log.Println("DuckDB initialized successfully")
+	}
+
+	// Initialize Stock Scheduler
+	if err := services.InitStockScheduler(); err != nil {
+		log.Printf("Warning: Failed to initialize Stock Scheduler: %v", err)
+	} else {
+		log.Println("Stock Scheduler initialized successfully")
+	}
+
+	// Initialize Price Service
+	if err := services.InitPriceService(); err != nil {
+		log.Printf("Warning: Failed to initialize Price Service: %v", err)
+	} else {
+		log.Println("Price Service initialized successfully")
+	}
+
+	// Initialize Indicator Service
+	if err := services.InitIndicatorService(); err != nil {
+		log.Printf("Warning: Failed to initialize Indicator Service: %v", err)
+	} else {
+		log.Println("Indicator Service initialized successfully")
+	}
+
+	log.Println("Local services initialized")
+}
+
 // initializeConnection initializes database or Supabase connection
 func initializeConnection(router *gin.Engine) {
 	dbHost := os.Getenv("DB_HOST")
@@ -173,41 +211,6 @@ func initSupabaseOnly(router *gin.Engine) {
 	authControllerMutex.Lock()
 	globalSupabaseAuthController = supabaseAuth
 	authControllerMutex.Unlock()
-
-	// Initialize DuckDB for local data storage
-	if err := services.InitDuckDB(); err != nil {
-		log.Printf("Warning: Failed to initialize DuckDB: %v", err)
-	} else {
-		log.Println("DuckDB initialized successfully")
-	}
-
-	// Initialize Stock Scheduler
-	if err := services.InitStockScheduler(); err != nil {
-		log.Printf("Warning: Failed to initialize Stock Scheduler: %v", err)
-	} else {
-		log.Println("Stock Scheduler initialized successfully")
-	}
-
-	// Initialize Price Service
-	if err := services.InitPriceService(); err != nil {
-		log.Printf("Warning: Failed to initialize Price Service: %v", err)
-	} else {
-		log.Println("Price Service initialized successfully")
-	}
-
-	// Initialize Indicator Service
-	if err := services.InitIndicatorService(); err != nil {
-		log.Printf("Warning: Failed to initialize Indicator Service: %v", err)
-	} else {
-		log.Println("Indicator Service initialized successfully")
-	}
-
-	// Initialize Storage Service (Supabase persistent storage)
-	if err := services.InitStorageService(); err != nil {
-		log.Printf("Warning: Failed to initialize Storage Service: %v", err)
-	} else {
-		log.Println("Storage Service initialized successfully")
-	}
 
 	// Setup protected admin routes
 	setupSupabaseAdminRoutes(router, supabaseAuth)
