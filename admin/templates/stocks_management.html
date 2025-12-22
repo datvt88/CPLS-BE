@@ -280,6 +280,50 @@
                         </div>
                     </div>
 
+                    <!-- Technical Indicators Card -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0"><i class="bi bi-calculator"></i> Technical Indicators</h6>
+                            <button class="btn btn-sm btn-outline-light" onclick="showTopRSModal()">
+                                <i class="bi bi-trophy"></i> Top RS Stocks
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <h4 id="indicatorCount">-</h4>
+                                        <small class="text-muted">Stocks with Indicators</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <span id="indicatorLastUpdate" class="text-muted">-</span>
+                                        <br><small class="text-muted">Last Calculation</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-muted small">
+                                        <div><i class="bi bi-check-circle text-success"></i> RS Ranking (3D, 1M, 3M, 1Y)</div>
+                                        <div><i class="bi bi-check-circle text-success"></i> MACD, RSI, MA (10,30,50,200)</div>
+                                        <div><i class="bi bi-check-circle text-success"></i> Volume Analysis</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3 text-end">
+                                    <button class="btn btn-info" onclick="calculateIndicators()" id="calcIndicatorsBtn">
+                                        <i class="bi bi-calculator"></i> Calculate All
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="indicatorProgress" style="display: none;" class="mt-3">
+                                <div class="d-flex justify-content-center">
+                                    <div class="spinner-border text-info me-2" role="status"></div>
+                                    <span>Calculating indicators for all stocks...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Stocks Table -->
                     <div class="card">
                         <div class="card-header bg-primary text-white">
@@ -572,6 +616,29 @@
                     <button type="button" class="btn btn-warning" onclick="savePriceConfig()" id="savePriceConfigBtn">
                         <i class="bi bi-check"></i> Save
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top RS Stocks Modal -->
+    <div class="modal fade" id="topRSModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title"><i class="bi bi-trophy"></i> Top RS Ranked Stocks</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="topRSContent">
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-info" role="status"></div>
+                            <p class="mt-2">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 </div>
             </div>
         </div>
@@ -1055,6 +1122,133 @@
                     document.getElementById('savePriceConfigBtn').disabled = false;
                     document.getElementById('savePriceConfigBtn').innerHTML = '<i class="bi bi-check"></i> Save';
                 }
+            });
+        }
+
+        // ==================== Indicator Functions ====================
+
+        // Load indicator stats on page load
+        $(document).ready(function() {
+            loadIndicatorStats();
+        });
+
+        // Load indicator stats
+        function loadIndicatorStats() {
+            $.get('/admin/api/indicators/summary', function(data) {
+                document.getElementById('indicatorCount').textContent = data.count || 0;
+                if (data.updated_at) {
+                    document.getElementById('indicatorLastUpdate').textContent = new Date(data.updated_at).toLocaleString();
+                }
+            }).fail(function() {
+                document.getElementById('indicatorCount').textContent = '0';
+                document.getElementById('indicatorLastUpdate').textContent = 'Not calculated';
+            });
+        }
+
+        // Calculate all indicators
+        function calculateIndicators() {
+            if (!confirm('Calculate technical indicators for all stocks? This may take a few minutes.')) return;
+
+            document.getElementById('calcIndicatorsBtn').disabled = true;
+            document.getElementById('indicatorProgress').style.display = 'block';
+
+            $.ajax({
+                url: '/admin/api/indicators/calculate',
+                method: 'POST',
+                timeout: 600000, // 10 minutes
+                success: function(response) {
+                    document.getElementById('indicatorProgress').style.display = 'none';
+                    document.getElementById('calcIndicatorsBtn').disabled = false;
+                    alert('Indicators calculated successfully!');
+                    loadIndicatorStats();
+                },
+                error: function(xhr) {
+                    document.getElementById('indicatorProgress').style.display = 'none';
+                    document.getElementById('calcIndicatorsBtn').disabled = false;
+                    alert('Failed: ' + (xhr.responseJSON?.error || 'Unknown error'));
+                }
+            });
+        }
+
+        // Show Top RS Stocks modal
+        function showTopRSModal() {
+            const modal = new bootstrap.Modal(document.getElementById('topRSModal'));
+            modal.show();
+
+            document.getElementById('topRSContent').innerHTML = `
+                <div class="text-center py-4">
+                    <div class="spinner-border text-info" role="status"></div>
+                    <p class="mt-2">Loading...</p>
+                </div>
+            `;
+
+            $.get('/admin/api/indicators/top-rs?limit=20', function(data) {
+                if (!data.stocks || data.stocks.length === 0) {
+                    document.getElementById('topRSContent').innerHTML = `
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle"></i> No indicator data available. Please calculate indicators first.
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = `
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Code</th>
+                                    <th>RS Avg</th>
+                                    <th>RS 3D</th>
+                                    <th>RS 1M</th>
+                                    <th>RS 3M</th>
+                                    <th>RS 1Y</th>
+                                    <th>RSI</th>
+                                    <th>MACD Hist</th>
+                                    <th>Price</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                data.stocks.forEach((stock, idx) => {
+                    const ind = stock.indicators;
+                    const rsColor = ind.rs_avg >= 80 ? 'success' : (ind.rs_avg >= 50 ? 'primary' : 'secondary');
+                    const macdColor = ind.macd_hist > 0 ? 'success' : 'danger';
+
+                    html += `
+                        <tr>
+                            <td>${idx + 1}</td>
+                            <td><strong class="stock-code">${stock.code}</strong></td>
+                            <td><span class="badge bg-${rsColor}">${ind.rs_avg.toFixed(0)}</span></td>
+                            <td>${ind.rs_3d_rank.toFixed(0)}</td>
+                            <td>${ind.rs_1m_rank.toFixed(0)}</td>
+                            <td>${ind.rs_3m_rank.toFixed(0)}</td>
+                            <td>${ind.rs_1y_rank.toFixed(0)}</td>
+                            <td>${ind.rsi.toFixed(1)}</td>
+                            <td class="text-${macdColor}">${ind.macd_hist.toFixed(2)}</td>
+                            <td>${ind.current_price.toLocaleString()}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="text-muted small mt-2">
+                        <i class="bi bi-info-circle"></i> RS Rank: 1-100 (higher = stronger relative strength)
+                    </div>
+                `;
+
+                document.getElementById('topRSContent').innerHTML = html;
+            }).fail(function(xhr) {
+                document.getElementById('topRSContent').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-x-circle"></i> Error: ${xhr.responseJSON?.error || 'Failed to load data'}
+                    </div>
+                `;
             });
         }
     </script>
