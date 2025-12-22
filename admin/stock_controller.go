@@ -235,3 +235,156 @@ func (ctrl *StockController) UpdateSchedulerConfig(c *gin.Context) {
 		"next_run":      config.NextRun,
 	})
 }
+
+// ==================== Price Sync Endpoints ====================
+
+// GetPriceConfig handles GET /admin/api/prices/config - returns price sync config
+func (ctrl *StockController) GetPriceConfig(c *gin.Context) {
+	if services.GlobalPriceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Price service not initialized"})
+		return
+	}
+
+	config := services.GlobalPriceService.GetConfig()
+	c.JSON(http.StatusOK, config)
+}
+
+// UpdatePriceConfig handles PUT /admin/api/prices/config - updates price sync config
+func (ctrl *StockController) UpdatePriceConfig(c *gin.Context) {
+	if services.GlobalPriceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Price service not initialized"})
+		return
+	}
+
+	var req struct {
+		DelayMS      int `json:"delay_ms"`
+		BatchSize    int `json:"batch_size"`
+		BatchPauseMS int `json:"batch_pause_ms"`
+		PriceSize    int `json:"price_size"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate
+	if req.DelayMS < 100 {
+		req.DelayMS = 100
+	}
+	if req.BatchSize < 1 {
+		req.BatchSize = 10
+	}
+	if req.BatchPauseMS < 1000 {
+		req.BatchPauseMS = 1000
+	}
+	if req.PriceSize < 30 {
+		req.PriceSize = 30
+	}
+
+	if err := services.GlobalPriceService.UpdateConfig(req.DelayMS, req.BatchSize, req.BatchPauseMS, req.PriceSize); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Price config updated successfully",
+		"config":  services.GlobalPriceService.GetConfig(),
+	})
+}
+
+// StartPriceSync handles POST /admin/api/prices/sync - starts price sync for all stocks
+func (ctrl *StockController) StartPriceSync(c *gin.Context) {
+	if services.GlobalPriceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Price service not initialized"})
+		return
+	}
+
+	if err := services.GlobalPriceService.StartFullSync(); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Price sync started",
+	})
+}
+
+// StopPriceSync handles POST /admin/api/prices/stop - stops price sync
+func (ctrl *StockController) StopPriceSync(c *gin.Context) {
+	if services.GlobalPriceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Price service not initialized"})
+		return
+	}
+
+	services.GlobalPriceService.StopSync()
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Price sync stopped",
+	})
+}
+
+// GetPriceSyncProgress handles GET /admin/api/prices/progress - returns sync progress
+func (ctrl *StockController) GetPriceSyncProgress(c *gin.Context) {
+	if services.GlobalPriceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Price service not initialized"})
+		return
+	}
+
+	progress := services.GlobalPriceService.GetProgress()
+	c.JSON(http.StatusOK, progress)
+}
+
+// GetPriceSyncStats handles GET /admin/api/prices/stats - returns price sync statistics
+func (ctrl *StockController) GetPriceSyncStats(c *gin.Context) {
+	if services.GlobalPriceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Price service not initialized"})
+		return
+	}
+
+	stats, err := services.GlobalPriceService.GetPriceSyncStats()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// SyncSingleStockPrice handles POST /admin/api/prices/:code - syncs price for single stock
+func (ctrl *StockController) SyncSingleStockPrice(c *gin.Context) {
+	if services.GlobalPriceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Price service not initialized"})
+		return
+	}
+
+	code := c.Param("code")
+	priceFile, err := services.GlobalPriceService.SyncSingleStock(code)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Price synced successfully",
+		"code":        priceFile.Code,
+		"data_count":  priceFile.DataCount,
+		"last_updated": priceFile.LastUpdated,
+	})
+}
+
+// GetStockPrice handles GET /admin/api/prices/:code - returns price data for a stock
+func (ctrl *StockController) GetStockPrice(c *gin.Context) {
+	if services.GlobalPriceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Price service not initialized"})
+		return
+	}
+
+	code := c.Param("code")
+	priceFile, err := services.GlobalPriceService.LoadStockPrice(code)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Price data not found for " + code})
+		return
+	}
+
+	c.JSON(http.StatusOK, priceFile)
+}

@@ -188,6 +188,13 @@ func initSupabaseOnly(router *gin.Engine) {
 		log.Println("Stock Scheduler initialized successfully")
 	}
 
+	// Initialize Price Service
+	if err := services.InitPriceService(); err != nil {
+		log.Printf("Warning: Failed to initialize Price Service: %v", err)
+	} else {
+		log.Println("Price Service initialized successfully")
+	}
+
 	// Setup protected admin routes
 	setupSupabaseAdminRoutes(router, supabaseAuth)
 
@@ -366,6 +373,19 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				stockAPI.PUT("/scheduler", stockCtrl.UpdateSchedulerConfig)
 				stockAPI.GET("/:code", stockCtrl.GetStock)
 				stockAPI.DELETE("/:code", stockCtrl.DeleteStock)
+			}
+
+			// Price Data API
+			priceAPI := protected.Group("/api/prices")
+			{
+				priceAPI.GET("/config", stockCtrl.GetPriceConfig)
+				priceAPI.PUT("/config", stockCtrl.UpdatePriceConfig)
+				priceAPI.GET("/stats", stockCtrl.GetPriceSyncStats)
+				priceAPI.GET("/progress", stockCtrl.GetPriceSyncProgress)
+				priceAPI.POST("/sync", stockCtrl.StartPriceSync)
+				priceAPI.POST("/stop", stockCtrl.StopPriceSync)
+				priceAPI.GET("/:code", stockCtrl.GetStockPrice)
+				priceAPI.POST("/:code", stockCtrl.SyncSingleStockPrice)
 			}
 		}
 	}
