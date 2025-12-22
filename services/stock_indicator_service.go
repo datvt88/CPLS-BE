@@ -483,11 +483,11 @@ func (s *StockIndicatorService) SaveIndicatorSummary(indicators map[string]*Exte
 	return nil
 }
 
-// LoadIndicatorSummary loads the indicator summary file or from Supabase
+// LoadIndicatorSummary loads the indicator summary file or from DuckDB
 func (s *StockIndicatorService) LoadIndicatorSummary() (*IndicatorSummaryFile, error) {
 	summaryPath := filepath.Join("data", "indicators_summary.json")
 
-	// Try local file first
+	// Try local JSON file first (fastest)
 	data, err := os.ReadFile(summaryPath)
 	if err == nil {
 		var summary IndicatorSummaryFile
@@ -496,16 +496,17 @@ func (s *StockIndicatorService) LoadIndicatorSummary() (*IndicatorSummaryFile, e
 		}
 	}
 
-	// Fallback to Supabase if configured
-	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
-		indicators, err := GlobalStorageService.LoadAllIndicators()
+	// Fallback to DuckDB if local file not found
+	if GlobalDuckDB != nil {
+		indicators, err := GlobalDuckDB.LoadAllIndicators()
 		if err == nil && len(indicators) > 0 {
+			count, updatedAt, _ := GlobalDuckDB.GetIndicatorsCount()
 			summary := &IndicatorSummaryFile{
-				UpdatedAt: time.Now().Format(time.RFC3339),
-				Count:     len(indicators),
+				UpdatedAt: updatedAt,
+				Count:     count,
 				Stocks:    indicators,
 			}
-			// Cache to local file
+			// Cache to local file for faster future reads
 			if cacheData, err := json.MarshalIndent(summary, "", "  "); err == nil {
 				os.WriteFile(summaryPath, cacheData, 0644)
 			}
@@ -534,10 +535,10 @@ func (s *StockIndicatorService) CalculateAndSaveAllIndicators() error {
 		return err
 	}
 
-	// Save to Supabase if configured
-	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
-		if err := GlobalStorageService.SaveAllIndicators(indicators); err != nil {
-			log.Printf("Warning: failed to save indicators to Supabase: %v", err)
+	// Save to local DuckDB database
+	if GlobalDuckDB != nil {
+		if err := GlobalDuckDB.SaveAllIndicators(indicators); err != nil {
+			log.Printf("Warning: failed to save indicators to DuckDB: %v", err)
 		}
 	}
 

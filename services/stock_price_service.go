@@ -261,21 +261,21 @@ func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData)
 		return fmt.Errorf("failed to write price file: %w", err)
 	}
 
-	// Also save to Supabase if configured
-	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
-		if err := GlobalStorageService.SaveStockPrices(code, prices); err != nil {
-			log.Printf("Warning: failed to save %s prices to Supabase: %v", code, err)
+	// Also save to local DuckDB database
+	if GlobalDuckDB != nil {
+		if err := GlobalDuckDB.SavePriceHistory(code, prices); err != nil {
+			log.Printf("Warning: failed to save %s prices to DuckDB: %v", code, err)
 		}
 	}
 
 	return nil
 }
 
-// LoadStockPrice loads price data from file or Supabase
+// LoadStockPrice loads price data from file or DuckDB
 func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error) {
 	filePath := filepath.Join(StockPriceDir, fmt.Sprintf("%s.json", code))
 
-	// Try local file first
+	// Try local JSON file first (fastest)
 	data, err := os.ReadFile(filePath)
 	if err == nil {
 		var priceFile StockPriceFile
@@ -284,9 +284,9 @@ func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error)
 		}
 	}
 
-	// Fallback to Supabase if local file not found
-	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
-		prices, err := GlobalStorageService.LoadStockPrices(code, 270)
+	// Fallback to DuckDB if local file not found
+	if GlobalDuckDB != nil {
+		prices, err := GlobalDuckDB.LoadPriceHistory(code, 270)
 		if err == nil && len(prices) > 0 {
 			priceFile := &StockPriceFile{
 				Code:        code,
@@ -294,7 +294,7 @@ func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error)
 				DataCount:   len(prices),
 				Prices:      prices,
 			}
-			// Cache to local file
+			// Cache to local JSON file for faster future reads
 			if cacheData, err := json.MarshalIndent(priceFile, "", "  "); err == nil {
 				os.WriteFile(filePath, cacheData, 0644)
 			}

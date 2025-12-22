@@ -51,6 +51,17 @@ func InitDuckDB() error {
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
 
+	// Create additional tables for price history and indicators
+	if err := GlobalDuckDB.CreatePriceHistoryTable(); err != nil {
+		log.Printf("Warning: failed to create price history table: %v", err)
+	}
+	if err := GlobalDuckDB.CreateIndicatorsTable(); err != nil {
+		log.Printf("Warning: failed to create indicators table: %v", err)
+	}
+	if err := GlobalDuckDB.CreateConfigTable(); err != nil {
+		log.Printf("Warning: failed to create config table: %v", err)
+	}
+
 	log.Printf("DuckDB initialized at %s", DuckDBPath)
 	return nil
 }
@@ -435,4 +446,416 @@ func (c *DuckDBClient) GetLastSyncTime(syncType string) (*time.Time, error) {
 		return &syncedAt.Time, nil
 	}
 	return nil, nil
+}
+
+// ==================== Stock Price History ====================
+
+// CreatePriceHistoryTable creates the price history table
+func (c *DuckDBClient) CreatePriceHistoryTable() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	query := `
+		CREATE TABLE IF NOT EXISTS stock_price_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			code VARCHAR NOT NULL,
+			date VARCHAR NOT NULL,
+			open REAL,
+			high REAL,
+			low REAL,
+			close REAL,
+			volume REAL,
+			value REAL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(code, date)
+		)
+	`
+	if _, err := c.db.Exec(query); err != nil {
+		return fmt.Errorf("failed to create stock_price_history table: %w", err)
+	}
+
+	// Create indexes
+	c.db.Exec("CREATE INDEX IF NOT EXISTS idx_price_history_code ON stock_price_history(code)")
+	c.db.Exec("CREATE INDEX IF NOT EXISTS idx_price_history_date ON stock_price_history(date DESC)")
+
+	log.Println("stock_price_history table created/verified")
+	return nil
+}
+
+// SavePriceHistory saves price history for a stock
+func (c *DuckDBClient) SavePriceHistory(code string, prices []StockPriceData) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Delete existing prices for this code
+	_, err := c.db.Exec("DELETE FROM stock_price_history WHERE code = ?", code)
+	if err != nil {
+		return fmt.Errorf("failed to delete old prices: %w", err)
+	}
+
+	// Insert new prices
+	stmt, err := c.db.Prepare(`
+		INSERT INTO stock_price_history (code, date, open, high, low, close, volume, value)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, p := range prices {
+		_, err := stmt.Exec(code, p.Date, p.Open, p.High, p.Low, p.Close, p.NmVolume, p.NmValue)
+		if err != nil {
+			log.Printf("Warning: failed to insert price for %s on %s: %v", code, p.Date, err)
+		}
+	}
+
+	return nil
+}
+
+// LoadPriceHistory loads price history for a stock
+func (c *DuckDBClient) LoadPriceHistory(code string, limit int) ([]StockPriceData, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	query := `SELECT code, date, open, high, low, close, volume, value
+		FROM stock_price_history WHERE code = ? ORDER BY date DESC LIMIT ?`
+
+	rows, err := c.db.Query(query, code, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var prices []StockPriceData
+	for rows.Next() {
+		var p StockPriceData
+		err := rows.Scan(&p.Code, &p.Date, &p.Open, &p.High, &p.Low, &p.Close, &p.NmVolume, &p.NmValue)
+		if err != nil {
+			return nil, err
+		}
+		prices = append(prices, p)
+	}
+
+	return prices, nil
+}
+
+// GetStockCodesWithPriceHistory returns list of stock codes that have price history
+func (c *DuckDBClient) GetStockCodesWithPriceHistory() ([]string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	query := `SELECT DISTINCT code FROM stock_price_history ORDER BY code`
+	rows, err := c.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var codes []string
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		codes = append(codes, code)
+	}
+
+	return codes, nil
+}
+
+// GetPriceHistoryCount returns count of stocks with price history
+func (c *DuckDBClient) GetPriceHistoryCount() (int, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var count int
+	err := c.db.QueryRow("SELECT COUNT(DISTINCT code) FROM stock_price_history").Scan(&count)
+	return count, err
+}
+
+// ==================== Stock Indicators ====================
+
+// DuckDBIndicator represents indicator data in database
+type DuckDBIndicator struct {
+	Code         string  `json:"code"`
+	CurrentPrice float64 `json:"current_price"`
+	PriceChange  float64 `json:"price_change"`
+	RS3D         float64 `json:"rs_3d"`
+	RS1M         float64 `json:"rs_1m"`
+	RS3M         float64 `json:"rs_3m"`
+	RS1Y         float64 `json:"rs_1y"`
+	RS3DRank     float64 `json:"rs_3d_rank"`
+	RS1MRank     float64 `json:"rs_1m_rank"`
+	RS3MRank     float64 `json:"rs_3m_rank"`
+	RS1YRank     float64 `json:"rs_1y_rank"`
+	RSAvg        float64 `json:"rs_avg"`
+	MACD         float64 `json:"macd"`
+	MACDSignal   float64 `json:"macd_signal"`
+	MACDHist     float64 `json:"macd_hist"`
+	AvgVol       float64 `json:"avg_vol"`
+	VolRatio     float64 `json:"vol_ratio"`
+	RSI          float64 `json:"rsi"`
+	MA10         float64 `json:"ma_10"`
+	MA30         float64 `json:"ma_30"`
+	MA50         float64 `json:"ma_50"`
+	MA200        float64 `json:"ma_200"`
+	UpdatedAt    string  `json:"updated_at"`
+}
+
+// CreateIndicatorsTable creates the indicators table
+func (c *DuckDBClient) CreateIndicatorsTable() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	query := `
+		CREATE TABLE IF NOT EXISTS stock_indicators (
+			code VARCHAR PRIMARY KEY,
+			current_price REAL,
+			price_change REAL,
+			rs_3d REAL,
+			rs_1m REAL,
+			rs_3m REAL,
+			rs_1y REAL,
+			rs_3d_rank REAL,
+			rs_1m_rank REAL,
+			rs_3m_rank REAL,
+			rs_1y_rank REAL,
+			rs_avg REAL,
+			macd REAL,
+			macd_signal REAL,
+			macd_hist REAL,
+			avg_vol REAL,
+			vol_ratio REAL,
+			rsi REAL,
+			ma_10 REAL,
+			ma_30 REAL,
+			ma_50 REAL,
+			ma_200 REAL,
+			updated_at VARCHAR
+		)
+	`
+	if _, err := c.db.Exec(query); err != nil {
+		return fmt.Errorf("failed to create stock_indicators table: %w", err)
+	}
+
+	// Create indexes for common queries
+	c.db.Exec("CREATE INDEX IF NOT EXISTS idx_indicators_rs_avg ON stock_indicators(rs_avg DESC)")
+	c.db.Exec("CREATE INDEX IF NOT EXISTS idx_indicators_rsi ON stock_indicators(rsi)")
+
+	log.Println("stock_indicators table created/verified")
+	return nil
+}
+
+// SaveIndicator saves a single indicator
+func (c *DuckDBClient) SaveIndicator(ind *DuckDBIndicator) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	query := `
+		INSERT OR REPLACE INTO stock_indicators (
+			code, current_price, price_change,
+			rs_3d, rs_1m, rs_3m, rs_1y,
+			rs_3d_rank, rs_1m_rank, rs_3m_rank, rs_1y_rank, rs_avg,
+			macd, macd_signal, macd_hist,
+			avg_vol, vol_ratio, rsi,
+			ma_10, ma_30, ma_50, ma_200, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := c.db.Exec(query,
+		ind.Code, ind.CurrentPrice, ind.PriceChange,
+		ind.RS3D, ind.RS1M, ind.RS3M, ind.RS1Y,
+		ind.RS3DRank, ind.RS1MRank, ind.RS3MRank, ind.RS1YRank, ind.RSAvg,
+		ind.MACD, ind.MACDSignal, ind.MACDHist,
+		ind.AvgVol, ind.VolRatio, ind.RSI,
+		ind.MA10, ind.MA30, ind.MA50, ind.MA200, ind.UpdatedAt,
+	)
+	return err
+}
+
+// SaveAllIndicators saves all indicators
+func (c *DuckDBClient) SaveAllIndicators(indicators map[string]*ExtendedStockIndicators) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Clear old data
+	c.db.Exec("DELETE FROM stock_indicators")
+
+	stmt, err := c.db.Prepare(`
+		INSERT INTO stock_indicators (
+			code, current_price, price_change,
+			rs_3d, rs_1m, rs_3m, rs_1y,
+			rs_3d_rank, rs_1m_rank, rs_3m_rank, rs_1y_rank, rs_avg,
+			macd, macd_signal, macd_hist,
+			avg_vol, vol_ratio, rsi,
+			ma_10, ma_30, ma_50, ma_200, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	count := 0
+	for code, ind := range indicators {
+		if ind == nil {
+			continue
+		}
+		_, err := stmt.Exec(
+			code, ind.CurrentPrice, ind.PriceChange,
+			ind.RS3D, ind.RS1M, ind.RS3M, ind.RS1Y,
+			ind.RS3DRank, ind.RS1MRank, ind.RS3MRank, ind.RS1YRank, ind.RSAvg,
+			ind.MACD, ind.MACDSignal, ind.MACDHist,
+			ind.AvgVol, ind.VolRatio, ind.RSI,
+			ind.MA10, ind.MA30, ind.MA50, ind.MA200, ind.UpdatedAt,
+		)
+		if err != nil {
+			log.Printf("Warning: failed to save indicator for %s: %v", code, err)
+		} else {
+			count++
+		}
+	}
+
+	log.Printf("Saved %d indicators to local database", count)
+	return nil
+}
+
+// LoadAllIndicators loads all indicators from database
+func (c *DuckDBClient) LoadAllIndicators() (map[string]*ExtendedStockIndicators, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	query := `SELECT code, current_price, price_change,
+		rs_3d, rs_1m, rs_3m, rs_1y,
+		rs_3d_rank, rs_1m_rank, rs_3m_rank, rs_1y_rank, rs_avg,
+		macd, macd_signal, macd_hist,
+		avg_vol, vol_ratio, rsi,
+		ma_10, ma_30, ma_50, ma_200, updated_at
+		FROM stock_indicators ORDER BY code`
+
+	rows, err := c.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	indicators := make(map[string]*ExtendedStockIndicators)
+	for rows.Next() {
+		var code string
+		var ind ExtendedStockIndicators
+		err := rows.Scan(
+			&code, &ind.CurrentPrice, &ind.PriceChange,
+			&ind.RS3D, &ind.RS1M, &ind.RS3M, &ind.RS1Y,
+			&ind.RS3DRank, &ind.RS1MRank, &ind.RS3MRank, &ind.RS1YRank, &ind.RSAvg,
+			&ind.MACD, &ind.MACDSignal, &ind.MACDHist,
+			&ind.AvgVol, &ind.VolRatio, &ind.RSI,
+			&ind.MA10, &ind.MA30, &ind.MA50, &ind.MA200, &ind.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		indicators[code] = &ind
+	}
+
+	return indicators, nil
+}
+
+// GetTopRSIndicators returns top stocks by RS average
+func (c *DuckDBClient) GetTopRSIndicators(limit int) ([]DuckDBIndicator, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	query := `SELECT code, current_price, price_change,
+		rs_3d, rs_1m, rs_3m, rs_1y,
+		rs_3d_rank, rs_1m_rank, rs_3m_rank, rs_1y_rank, rs_avg,
+		macd, macd_signal, macd_hist,
+		avg_vol, vol_ratio, rsi,
+		ma_10, ma_30, ma_50, ma_200, updated_at
+		FROM stock_indicators ORDER BY rs_avg DESC LIMIT ?`
+
+	rows, err := c.db.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []DuckDBIndicator
+	for rows.Next() {
+		var ind DuckDBIndicator
+		err := rows.Scan(
+			&ind.Code, &ind.CurrentPrice, &ind.PriceChange,
+			&ind.RS3D, &ind.RS1M, &ind.RS3M, &ind.RS1Y,
+			&ind.RS3DRank, &ind.RS1MRank, &ind.RS3MRank, &ind.RS1YRank, &ind.RSAvg,
+			&ind.MACD, &ind.MACDSignal, &ind.MACDHist,
+			&ind.AvgVol, &ind.VolRatio, &ind.RSI,
+			&ind.MA10, &ind.MA30, &ind.MA50, &ind.MA200, &ind.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, ind)
+	}
+
+	return results, nil
+}
+
+// GetIndicatorsCount returns count and last update time
+func (c *DuckDBClient) GetIndicatorsCount() (int, string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var count int
+	var updatedAt sql.NullString
+
+	err := c.db.QueryRow("SELECT COUNT(*) FROM stock_indicators").Scan(&count)
+	if err != nil {
+		return 0, "", err
+	}
+
+	c.db.QueryRow("SELECT updated_at FROM stock_indicators ORDER BY updated_at DESC LIMIT 1").Scan(&updatedAt)
+
+	return count, updatedAt.String, nil
+}
+
+// ==================== System Config ====================
+
+// CreateConfigTable creates the system config table
+func (c *DuckDBClient) CreateConfigTable() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	query := `
+		CREATE TABLE IF NOT EXISTS system_config (
+			key VARCHAR PRIMARY KEY,
+			value TEXT,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`
+	if _, err := c.db.Exec(query); err != nil {
+		return fmt.Errorf("failed to create system_config table: %w", err)
+	}
+
+	log.Println("system_config table created/verified")
+	return nil
+}
+
+// SaveConfig saves a config value
+func (c *DuckDBClient) SaveConfig(key string, value string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	query := `INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, ?)`
+	_, err := c.db.Exec(query, key, value, time.Now())
+	return err
+}
+
+// LoadConfig loads a config value
+func (c *DuckDBClient) LoadConfig(key string) (string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var value string
+	err := c.db.QueryRow("SELECT value FROM system_config WHERE key = ?", key).Scan(&value)
+	return value, err
 }
