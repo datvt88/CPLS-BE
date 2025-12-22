@@ -483,21 +483,37 @@ func (s *StockIndicatorService) SaveIndicatorSummary(indicators map[string]*Exte
 	return nil
 }
 
-// LoadIndicatorSummary loads the indicator summary file
+// LoadIndicatorSummary loads the indicator summary file or from Supabase
 func (s *StockIndicatorService) LoadIndicatorSummary() (*IndicatorSummaryFile, error) {
 	summaryPath := filepath.Join("data", "indicators_summary.json")
 
+	// Try local file first
 	data, err := os.ReadFile(summaryPath)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		var summary IndicatorSummaryFile
+		if err := json.Unmarshal(data, &summary); err == nil {
+			return &summary, nil
+		}
 	}
 
-	var summary IndicatorSummaryFile
-	if err := json.Unmarshal(data, &summary); err != nil {
-		return nil, err
+	// Fallback to Supabase if configured
+	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
+		indicators, err := GlobalStorageService.LoadAllIndicators()
+		if err == nil && len(indicators) > 0 {
+			summary := &IndicatorSummaryFile{
+				UpdatedAt: time.Now().Format(time.RFC3339),
+				Count:     len(indicators),
+				Stocks:    indicators,
+			}
+			// Cache to local file
+			if cacheData, err := json.MarshalIndent(summary, "", "  "); err == nil {
+				os.WriteFile(summaryPath, cacheData, 0644)
+			}
+			return summary, nil
+		}
 	}
 
-	return &summary, nil
+	return nil, fmt.Errorf("indicator summary not found")
 }
 
 // CalculateAndSaveAllIndicators calculates and saves all indicators
@@ -516,6 +532,13 @@ func (s *StockIndicatorService) CalculateAndSaveAllIndicators() error {
 	// Save summary file
 	if err := s.SaveIndicatorSummary(indicators); err != nil {
 		return err
+	}
+
+	// Save to Supabase if configured
+	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
+		if err := GlobalStorageService.SaveAllIndicators(indicators); err != nil {
+			log.Printf("Warning: failed to save indicators to Supabase: %v", err)
+		}
 	}
 
 	return nil

@@ -241,7 +241,7 @@ func (s *StockPriceService) FetchStockPrice(code string, size int) (*VNDirectPri
 	return &priceResp, nil
 }
 
-// SaveStockPrice saves price data to file
+// SaveStockPrice saves price data to file and optionally to Supabase
 func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData) error {
 	priceFile := StockPriceFile{
 		Code:        code,
@@ -250,6 +250,7 @@ func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData)
 		Prices:      prices,
 	}
 
+	// Save to local file
 	data, err := json.MarshalIndent(priceFile, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal price data: %w", err)
@@ -260,24 +261,48 @@ func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData)
 		return fmt.Errorf("failed to write price file: %w", err)
 	}
 
+	// Also save to Supabase if configured
+	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
+		if err := GlobalStorageService.SaveStockPrices(code, prices); err != nil {
+			log.Printf("Warning: failed to save %s prices to Supabase: %v", code, err)
+		}
+	}
+
 	return nil
 }
 
-// LoadStockPrice loads price data from file
+// LoadStockPrice loads price data from file or Supabase
 func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error) {
 	filePath := filepath.Join(StockPriceDir, fmt.Sprintf("%s.json", code))
 
+	// Try local file first
 	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		var priceFile StockPriceFile
+		if err := json.Unmarshal(data, &priceFile); err == nil {
+			return &priceFile, nil
+		}
 	}
 
-	var priceFile StockPriceFile
-	if err := json.Unmarshal(data, &priceFile); err != nil {
-		return nil, err
+	// Fallback to Supabase if local file not found
+	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
+		prices, err := GlobalStorageService.LoadStockPrices(code, 270)
+		if err == nil && len(prices) > 0 {
+			priceFile := &StockPriceFile{
+				Code:        code,
+				LastUpdated: time.Now().Format(time.RFC3339),
+				DataCount:   len(prices),
+				Prices:      prices,
+			}
+			// Cache to local file
+			if cacheData, err := json.MarshalIndent(priceFile, "", "  "); err == nil {
+				os.WriteFile(filePath, cacheData, 0644)
+			}
+			return priceFile, nil
+		}
 	}
 
-	return &priceFile, nil
+	return nil, fmt.Errorf("price data not found for %s", code)
 }
 
 // StartFullSync starts syncing prices for all stocks
