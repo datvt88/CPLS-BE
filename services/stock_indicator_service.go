@@ -270,8 +270,8 @@ func CalculateIndicatorsForStock(priceFile *StockPriceFile) *ExtendedStockIndica
 	// MACD
 	indicators.MACD, indicators.MACDSignal, indicators.MACDHist = CalculateMACD(closePrices)
 
-	// Average Volume (20-day)
-	indicators.AvgVol = CalculateAvgVolume(volumes, 20)
+	// Average Volume (5-day)
+	indicators.AvgVol = CalculateAvgVolume(volumes, 5)
 	if indicators.AvgVol > 0 && volumes[0] > 0 {
 		indicators.VolRatio = math.Round((volumes[0]/indicators.AvgVol)*100) / 100
 	}
@@ -483,21 +483,38 @@ func (s *StockIndicatorService) SaveIndicatorSummary(indicators map[string]*Exte
 	return nil
 }
 
-// LoadIndicatorSummary loads the indicator summary file
+// LoadIndicatorSummary loads the indicator summary file or from DuckDB
 func (s *StockIndicatorService) LoadIndicatorSummary() (*IndicatorSummaryFile, error) {
 	summaryPath := filepath.Join("data", "indicators_summary.json")
 
+	// Try local JSON file first (fastest)
 	data, err := os.ReadFile(summaryPath)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		var summary IndicatorSummaryFile
+		if err := json.Unmarshal(data, &summary); err == nil {
+			return &summary, nil
+		}
 	}
 
-	var summary IndicatorSummaryFile
-	if err := json.Unmarshal(data, &summary); err != nil {
-		return nil, err
+	// Fallback to DuckDB if local file not found
+	if GlobalDuckDB != nil {
+		indicators, err := GlobalDuckDB.LoadAllIndicators()
+		if err == nil && len(indicators) > 0 {
+			count, updatedAt, _ := GlobalDuckDB.GetIndicatorsCount()
+			summary := &IndicatorSummaryFile{
+				UpdatedAt: updatedAt,
+				Count:     count,
+				Stocks:    indicators,
+			}
+			// Cache to local file for faster future reads
+			if cacheData, err := json.MarshalIndent(summary, "", "  "); err == nil {
+				os.WriteFile(summaryPath, cacheData, 0644)
+			}
+			return summary, nil
+		}
 	}
 
-	return &summary, nil
+	return nil, fmt.Errorf("indicator summary not found")
 }
 
 // CalculateAndSaveAllIndicators calculates and saves all indicators
@@ -516,6 +533,13 @@ func (s *StockIndicatorService) CalculateAndSaveAllIndicators() error {
 	// Save summary file
 	if err := s.SaveIndicatorSummary(indicators); err != nil {
 		return err
+	}
+
+	// Save to local DuckDB database
+	if GlobalDuckDB != nil {
+		if err := GlobalDuckDB.SaveAllIndicators(indicators); err != nil {
+			log.Printf("Warning: failed to save indicators to DuckDB: %v", err)
+		}
 	}
 
 	return nil

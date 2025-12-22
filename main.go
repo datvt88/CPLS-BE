@@ -202,6 +202,13 @@ func initSupabaseOnly(router *gin.Engine) {
 		log.Println("Indicator Service initialized successfully")
 	}
 
+	// Initialize Storage Service (Supabase persistent storage)
+	if err := services.InitStorageService(); err != nil {
+		log.Printf("Warning: Failed to initialize Storage Service: %v", err)
+	} else {
+		log.Println("Storage Service initialized successfully")
+	}
+
 	// Setup protected admin routes
 	setupSupabaseAdminRoutes(router, supabaseAuth)
 
