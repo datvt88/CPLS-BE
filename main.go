@@ -195,6 +195,13 @@ func initSupabaseOnly(router *gin.Engine) {
 		log.Println("Price Service initialized successfully")
 	}
 
+	// Initialize Indicator Service
+	if err := services.InitIndicatorService(); err != nil {
+		log.Printf("Warning: Failed to initialize Indicator Service: %v", err)
+	} else {
+		log.Println("Indicator Service initialized successfully")
+	}
+
 	// Setup protected admin routes
 	setupSupabaseAdminRoutes(router, supabaseAuth)
 
@@ -386,6 +393,16 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				priceAPI.POST("/stop", stockCtrl.StopPriceSync)
 				priceAPI.GET("/:code", stockCtrl.GetStockPrice)
 				priceAPI.POST("/:code", stockCtrl.SyncSingleStockPrice)
+			}
+
+			// Technical Indicators API
+			indicatorAPI := protected.Group("/api/indicators")
+			{
+				indicatorAPI.POST("/calculate", stockCtrl.CalculateAllIndicators)
+				indicatorAPI.GET("/summary", stockCtrl.GetIndicatorSummary)
+				indicatorAPI.GET("/top-rs", stockCtrl.GetTopRSStocks)
+				indicatorAPI.POST("/filter", stockCtrl.FilterStocks)
+				indicatorAPI.GET("/:code", stockCtrl.GetStockIndicators)
 			}
 		}
 	}

@@ -388,3 +388,131 @@ func (ctrl *StockController) GetStockPrice(c *gin.Context) {
 
 	c.JSON(http.StatusOK, priceFile)
 }
+
+// ==================== Indicator Endpoints ====================
+
+// CalculateAllIndicators handles POST /admin/api/indicators/calculate - calculates all indicators
+func (ctrl *StockController) CalculateAllIndicators(c *gin.Context) {
+	if services.GlobalIndicatorService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Indicator service not initialized"})
+		return
+	}
+
+	if err := services.GlobalIndicatorService.CalculateAndSaveAllIndicators(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Indicators calculated successfully",
+	})
+}
+
+// GetIndicatorSummary handles GET /admin/api/indicators/summary - returns all indicators summary
+func (ctrl *StockController) GetIndicatorSummary(c *gin.Context) {
+	if services.GlobalIndicatorService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Indicator service not initialized"})
+		return
+	}
+
+	summary, err := services.GlobalIndicatorService.LoadIndicatorSummary()
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Indicator summary not found. Please calculate indicators first."})
+		return
+	}
+
+	c.JSON(http.StatusOK, summary)
+}
+
+// GetStockIndicators handles GET /admin/api/indicators/:code - returns indicators for a stock
+func (ctrl *StockController) GetStockIndicators(c *gin.Context) {
+	if services.GlobalIndicatorService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Indicator service not initialized"})
+		return
+	}
+
+	code := c.Param("code")
+	indicators, err := services.GlobalIndicatorService.GetStockIndicators(code)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Indicators not found for " + code})
+		return
+	}
+
+	c.JSON(http.StatusOK, indicators)
+}
+
+// FilterStocks handles POST /admin/api/indicators/filter - filters stocks by indicators
+func (ctrl *StockController) FilterStocks(c *gin.Context) {
+	if services.GlobalIndicatorService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Indicator service not initialized"})
+		return
+	}
+
+	var filter services.IndicatorFilter
+	if err := c.ShouldBindJSON(&filter); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	results, err := services.GlobalIndicatorService.FilterStocks(filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"count":  len(results),
+		"stocks": results,
+	})
+}
+
+// GetTopRSStocks handles GET /admin/api/indicators/top-rs - returns top RS ranked stocks
+func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
+	if services.GlobalIndicatorService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Indicator service not initialized"})
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit > 100 {
+		limit = 100
+	}
+
+	summary, err := services.GlobalIndicatorService.LoadIndicatorSummary()
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Indicator summary not found"})
+		return
+	}
+
+	// Collect and sort by RSAvg
+	type stockRS struct {
+		Code       string                             `json:"code"`
+		Indicators *services.ExtendedStockIndicators `json:"indicators"`
+	}
+
+	var stocks []stockRS
+	for code, ind := range summary.Stocks {
+		if ind != nil {
+			stocks = append(stocks, stockRS{Code: code, Indicators: ind})
+		}
+	}
+
+	// Sort by RSAvg descending
+	for i := 0; i < len(stocks)-1; i++ {
+		for j := i + 1; j < len(stocks); j++ {
+			if stocks[j].Indicators.RSAvg > stocks[i].Indicators.RSAvg {
+				stocks[i], stocks[j] = stocks[j], stocks[i]
+			}
+		}
+	}
+
+	// Limit results
+	if len(stocks) > limit {
+		stocks = stocks[:limit]
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"count":  len(stocks),
+		"stocks": stocks,
+	})
+}
