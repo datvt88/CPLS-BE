@@ -16,8 +16,8 @@ import (
 // VNDirectAPIURL is the endpoint for fetching stock list
 const VNDirectAPIURL = "https://api-finfo.vndirect.com.vn/v4/stocks?q=type:stock~status:listed~floor:HOSE,HNX,UPCOM&size=9999"
 
-// StockSeedFile is the local seed file for stocks data
-const StockSeedFile = "data/stocks_seed.json"
+// StockListFile is the local file for stocks data
+const StockListFile = "data/stocks_list.json"
 
 // VNDirectResponse represents the response from VNDirect API
 type VNDirectResponse struct {
@@ -95,15 +95,15 @@ func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("VNDirect API error: %v, trying local seed file...", err)
-		return LoadStocksFromSeedFile()
+		log.Printf("VNDirect API error: %v, trying local file...", err)
+		return LoadStocksFromFile()
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("VNDirect API error (status %d): %s, trying local seed file...", resp.StatusCode, string(body))
-		return LoadStocksFromSeedFile()
+		log.Printf("VNDirect API error (status %d): %s, trying local file...", resp.StatusCode, string(body))
+		return LoadStocksFromFile()
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -118,31 +118,31 @@ func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 
 	log.Printf("VNDirect API fetched %d stocks", len(response.Data))
 
-	// Save to seed file for future offline use
-	go SaveStocksToSeedFile(response.Data)
+	// Save to local file for future offline use
+	go SaveStocksToFile(response.Data)
 
 	return response.Data, nil
 }
 
-// LoadStocksFromSeedFile loads stocks from local seed JSON file
-func LoadStocksFromSeedFile() ([]VNDirectStock, error) {
-	data, err := os.ReadFile(StockSeedFile)
+// LoadStocksFromFile loads stocks from local JSON file
+func LoadStocksFromFile() ([]VNDirectStock, error) {
+	data, err := os.ReadFile(StockListFile)
 	if err != nil {
-		return nil, fmt.Errorf("seed file not found: %w. Please provide data/stocks_seed.json", err)
+		return nil, fmt.Errorf("stock list file not found: %w. Please provide data/stocks_list.json or import via admin", err)
 	}
 
 	var stocks []VNDirectStock
 	if err := json.Unmarshal(data, &stocks); err != nil {
-		return nil, fmt.Errorf("failed to parse seed file: %w", err)
+		return nil, fmt.Errorf("failed to parse stock list file: %w", err)
 	}
 
-	log.Printf("Loaded %d stocks from seed file", len(stocks))
+	log.Printf("Loaded %d stocks from file: %s", len(stocks), StockListFile)
 	return stocks, nil
 }
 
-// SaveStocksToSeedFile saves stocks to local seed JSON file for offline use
-func SaveStocksToSeedFile(stocks []VNDirectStock) error {
-	dir := filepath.Dir(StockSeedFile)
+// SaveStocksToFile saves stocks to local JSON file
+func SaveStocksToFile(stocks []VNDirectStock) error {
+	dir := filepath.Dir(StockListFile)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
@@ -152,11 +152,11 @@ func SaveStocksToSeedFile(stocks []VNDirectStock) error {
 		return fmt.Errorf("failed to marshal stocks: %w", err)
 	}
 
-	if err := os.WriteFile(StockSeedFile, data, 0644); err != nil {
-		return fmt.Errorf("failed to write seed file: %w", err)
+	if err := os.WriteFile(StockListFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write stock list file: %w", err)
 	}
 
-	log.Printf("Saved %d stocks to seed file", len(stocks))
+	log.Printf("Saved %d stocks to file: %s", len(stocks), StockListFile)
 	return nil
 }
 
@@ -204,8 +204,8 @@ func ImportStocksFromJSON(jsonData []byte) (*StockSyncResult, error) {
 		result.Created++
 	}
 
-	// Save to seed file for future use
-	SaveStocksToSeedFile(stocks)
+	// Save to local file for future use
+	SaveStocksToFile(stocks)
 
 	// Save sync history
 	errStr := ""
