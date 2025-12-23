@@ -467,15 +467,16 @@ func (ctrl *StockController) FilterStocks(c *gin.Context) {
 }
 
 // GetTopRSStocks handles GET /admin/api/indicators/top-rs - returns top RS ranked stocks
+// Filter conditions: avgVol >= 600000, RS1YRank >= 80, RSAvg >= 40, MACDHist > -0.1
 func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 	if services.GlobalIndicatorService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Indicator service not initialized"})
 		return
 	}
 
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	if limit > 100 {
-		limit = 100
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit > 200 {
+		limit = 200
 	}
 
 	summary, err := services.GlobalIndicatorService.LoadIndicatorSummary()
@@ -484,7 +485,7 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 		return
 	}
 
-	// Collect and sort by RSAvg
+	// Collect and filter stocks
 	type stockRS struct {
 		Code       string                             `json:"code"`
 		Indicators *services.ExtendedStockIndicators `json:"indicators"`
@@ -492,9 +493,32 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 
 	var stocks []stockRS
 	for code, ind := range summary.Stocks {
-		if ind != nil {
-			stocks = append(stocks, stockRS{Code: code, Indicators: ind})
+		if ind == nil {
+			continue
 		}
+
+		// Apply filter conditions:
+		// avgVol (5 days) >= 600000
+		if ind.AvgVol < 600000 {
+			continue
+		}
+
+		// RS1YRank >= 80
+		if ind.RS1YRank < 80 {
+			continue
+		}
+
+		// RSAvg >= 40
+		if ind.RSAvg < 40 {
+			continue
+		}
+
+		// MACDHist > -0.1
+		if ind.MACDHist <= -0.1 {
+			continue
+		}
+
+		stocks = append(stocks, stockRS{Code: code, Indicators: ind})
 	}
 
 	// Sort by RSAvg descending
@@ -514,5 +538,11 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"count":  len(stocks),
 		"stocks": stocks,
+		"filter": gin.H{
+			"avg_vol_min":    600000,
+			"rs_1y_rank_min": 80,
+			"rs_avg_min":     40,
+			"macd_hist_min":  -0.1,
+		},
 	})
 }

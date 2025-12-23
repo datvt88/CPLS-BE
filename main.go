@@ -143,6 +143,13 @@ func initLocalServices() {
 		log.Println("DuckDB initialized successfully")
 	}
 
+	// Initialize Supabase Storage Service for cloud persistence
+	if err := services.InitStorageService(); err != nil {
+		log.Printf("Warning: Failed to initialize Storage Service: %v", err)
+	} else {
+		log.Println("Storage Service initialized successfully")
+	}
+
 	// Initialize Stock Scheduler
 	if err := services.InitStockScheduler(); err != nil {
 		log.Printf("Warning: Failed to initialize Stock Scheduler: %v", err)
