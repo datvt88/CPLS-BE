@@ -124,30 +124,39 @@
 
                     <!-- Stats Cards -->
                     <div class="row">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <div class="card stat-card">
                                 <div class="card-body">
-                                    <h6 class="card-subtitle mb-2 text-muted">Connection Status</h6>
+                                    <h6 class="card-subtitle mb-2 text-muted">Supabase</h6>
                                     <h2 class="card-title text-success"><i class="bi bi-cloud-check"></i> Connected</h2>
-                                    <p class="card-text">Supabase REST API</p>
+                                    <p class="card-text">Auth & Config</p>
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-4">
-                            <div class="card stat-card" style="border-left-color: #27ae60;">
+                        <div class="col-md-3">
+                            <div class="card stat-card" id="mongodb-status-card" style="border-left-color: #27ae60;">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-muted">MongoDB Atlas</h6>
+                                    <h2 class="card-title" id="mongodb-status"><i class="bi bi-hourglass-split"></i> Checking...</h2>
+                                    <p class="card-text" id="mongodb-info">Data Storage</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card stat-card" style="border-left-color: #3498db;">
                                 <div class="card-body">
                                     <h6 class="card-subtitle mb-2 text-muted">Authentication</h6>
                                     <h2 class="card-title text-success"><i class="bi bi-shield-check"></i> Active</h2>
-                                    <p class="card-text">Session-based auth</p>
+                                    <p class="card-text">7-day sessions</p>
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <div class="card stat-card" style="border-left-color: #9b59b6;">
                                 <div class="card-body">
                                     <h6 class="card-subtitle mb-2 text-muted">Mode</h6>
-                                    <h2 class="card-title"><i class="bi bi-cloud"></i> Supabase</h2>
-                                    <p class="card-text">REST API only</p>
+                                    <h2 class="card-title"><i class="bi bi-cloud"></i> Cloud</h2>
+                                    <p class="card-text">Persistent Storage</p>
                                 </div>
                             </div>
                         </div>
@@ -165,14 +174,14 @@
                                         <dt class="col-sm-4">API Version</dt>
                                         <dd class="col-sm-8">v1.0</dd>
 
-                                        <dt class="col-sm-4">Mode</dt>
-                                        <dd class="col-sm-8">Supabase-only</dd>
+                                        <dt class="col-sm-4">Auth</dt>
+                                        <dd class="col-sm-8">Supabase PostgreSQL</dd>
 
-                                        <dt class="col-sm-4">Database</dt>
-                                        <dd class="col-sm-8">Supabase PostgreSQL (via REST)</dd>
+                                        <dt class="col-sm-4">Data Storage</dt>
+                                        <dd class="col-sm-8">MongoDB Atlas</dd>
 
-                                        <dt class="col-sm-4">Auth Table</dt>
-                                        <dd class="col-sm-8"><code>admin_users</code></dd>
+                                        <dt class="col-sm-4">Session</dt>
+                                        <dd class="col-sm-8">7 days (auto-extend)</dd>
                                     </dl>
                                 </div>
                             </div>
@@ -181,28 +190,41 @@
                         <div class="col-md-6">
                             <div class="card">
                                 <div class="card-header bg-success text-white">
-                                    <h5><i class="bi bi-link-45deg"></i> Quick Links</h5>
+                                    <h5><i class="bi bi-database"></i> MongoDB Stats</h5>
                                 </div>
-                                <div class="card-body">
-                                    <a href="/health" target="_blank" class="btn btn-outline-primary btn-block mb-2 w-100">
-                                        <i class="bi bi-heart-pulse"></i> Health Check
-                                    </a>
-                                    <a href="/api/v1/health/db" target="_blank" class="btn btn-outline-success btn-block mb-2 w-100">
-                                        <i class="bi bi-database"></i> Database Health
-                                    </a>
-                                    <a href="/" target="_blank" class="btn btn-outline-secondary btn-block w-100">
-                                        <i class="bi bi-house"></i> API Root
-                                    </a>
+                                <div class="card-body" id="mongodb-stats">
+                                    <div class="text-center py-3">
+                                        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                        <span class="ms-2">Loading stats...</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Note -->
+                    <!-- Quick Actions -->
                     <div class="row mt-4">
                         <div class="col-12">
-                            <div class="alert alert-info">
-                                <i class="bi bi-lightbulb"></i> <strong>Note:</strong> To enable full functionality (stocks, strategies, backtests, trading bot), configure direct database connection by setting <code>DB_HOST</code> environment variable.
+                            <div class="card">
+                                <div class="card-header bg-secondary text-white">
+                                    <h5><i class="bi bi-lightning"></i> Quick Actions</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <a href="/admin/stocks" class="btn btn-primary">
+                                            <i class="bi bi-graph-up"></i> Stocks & Indicators
+                                        </a>
+                                        <button class="btn btn-outline-success" onclick="syncToMongoDB()">
+                                            <i class="bi bi-cloud-upload"></i> Sync to MongoDB
+                                        </button>
+                                        <button class="btn btn-outline-info" onclick="restoreFromMongoDB()">
+                                            <i class="bi bi-cloud-download"></i> Restore from MongoDB
+                                        </button>
+                                        <a href="/health" target="_blank" class="btn btn-outline-secondary">
+                                            <i class="bi bi-heart-pulse"></i> Health Check
+                                        </a>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -212,5 +234,90 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Check MongoDB status on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkMongoDBStatus();
+        });
+
+        function checkMongoDBStatus() {
+            fetch('/admin/api/mongodb/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusEl = document.getElementById('mongodb-status');
+                    const infoEl = document.getElementById('mongodb-info');
+                    const cardEl = document.getElementById('mongodb-status-card');
+                    const statsEl = document.getElementById('mongodb-stats');
+
+                    if (data.connected) {
+                        statusEl.innerHTML = '<i class="bi bi-check-circle text-success"></i> Connected';
+                        statusEl.className = 'card-title text-success';
+                        cardEl.style.borderLeftColor = '#27ae60';
+
+                        // Show stats
+                        let statsHtml = '<dl class="row mb-0">';
+                        if (data.stock_list) {
+                            statsHtml += `<dt class="col-sm-6">Stock List</dt><dd class="col-sm-6">${data.stock_list.count || 0} stocks</dd>`;
+                        }
+                        if (data.price_data) {
+                            statsHtml += `<dt class="col-sm-6">Price Data</dt><dd class="col-sm-6">${data.price_data.count || 0} stocks</dd>`;
+                        }
+                        if (data.indicators) {
+                            statsHtml += `<dt class="col-sm-6">Indicators</dt><dd class="col-sm-6">${data.indicators.count || 0} stocks</dd>`;
+                        }
+                        statsHtml += '</dl>';
+                        statsEl.innerHTML = statsHtml;
+
+                        infoEl.textContent = 'Persistent Storage';
+                    } else {
+                        statusEl.innerHTML = '<i class="bi bi-x-circle text-warning"></i> Not Configured';
+                        statusEl.className = 'card-title text-warning';
+                        cardEl.style.borderLeftColor = '#f39c12';
+                        infoEl.textContent = 'Set MONGODB_URI';
+                        statsEl.innerHTML = '<p class="text-muted mb-0">MongoDB not configured. Set <code>MONGODB_URI</code> environment variable to enable persistent storage.</p>';
+                    }
+                })
+                .catch(error => {
+                    const statusEl = document.getElementById('mongodb-status');
+                    const cardEl = document.getElementById('mongodb-status-card');
+                    statusEl.innerHTML = '<i class="bi bi-exclamation-triangle text-danger"></i> Error';
+                    statusEl.className = 'card-title text-danger';
+                    cardEl.style.borderLeftColor = '#e74c3c';
+                    document.getElementById('mongodb-stats').innerHTML = '<p class="text-danger mb-0">Failed to check status</p>';
+                });
+        }
+
+        function syncToMongoDB() {
+            if (!confirm('Sync all local data to MongoDB Atlas?')) return;
+
+            fetch('/admin/api/mongodb/sync-to', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                    } else {
+                        alert('Success: ' + data.message);
+                        checkMongoDBStatus();
+                    }
+                })
+                .catch(error => alert('Error: ' + error));
+        }
+
+        function restoreFromMongoDB() {
+            if (!confirm('Restore all data from MongoDB Atlas? This will overwrite local data.')) return;
+
+            fetch('/admin/api/mongodb/restore-from', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                    } else {
+                        alert('Success: ' + data.message);
+                        checkMongoDBStatus();
+                    }
+                })
+                .catch(error => alert('Error: ' + error));
+        }
+    </script>
 </body>
 </html>

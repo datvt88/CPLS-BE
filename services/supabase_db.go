@@ -220,37 +220,35 @@ func (c *SupabaseDBClient) TestConnection() error {
 }
 
 // AdminSessionRecord represents an admin session in the database
+// This matches the Supabase admin_sessions table structure
 type AdminSessionRecord struct {
-	ID          int       `json:"id"`
-	Token       string    `json:"token"`
-	UserID      int       `json:"user_id"`
-	Username    string    `json:"username"`
-	Email       string    `json:"email"`
-	FullName    string    `json:"full_name"`
-	Role        string    `json:"role"`
-	IPAddress   string    `json:"ip_address"`
-	UserAgent   string    `json:"user_agent"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID        int       `json:"id"`
+	AdminUser int       `json:"admin_user"` // Foreign key to admin_users.id
+	Token     string    `json:"token"`
+	IPAddress string    `json:"ip_address"`
+	UserAgent string    `json:"user_agent"`
+	ExpiresAt time.Time `json:"expires_at"`
+	// These fields are populated from admin_users table (not stored in sessions)
+	Username string `json:"-"`
+	Email    string `json:"-"`
+	FullName string `json:"-"`
+	Role     string `json:"-"`
+	UserID   int    `json:"-"` // Alias for AdminUser
 }
 
 // CreateAdminSession creates a new admin session in Supabase
 func (c *SupabaseDBClient) CreateAdminSession(session *AdminSessionRecord) error {
 	queryURL := fmt.Sprintf("%s/rest/v1/admin_sessions", c.URL)
 
+	// Only include fields that exist in the admin_sessions table
 	payload := fmt.Sprintf(`{
 		"token": "%s",
-		"user_id": %d,
-		"username": "%s",
-		"email": "%s",
-		"full_name": "%s",
-		"role": "%s",
+		"admin_user": %d,
 		"ip_address": "%s",
 		"user_agent": "%s",
 		"expires_at": "%s"
-	}`, session.Token, session.UserID, session.Username, session.Email,
-		session.FullName, session.Role, session.IPAddress, session.UserAgent,
-		session.ExpiresAt.UTC().Format(time.RFC3339))
+	}`, session.Token, session.AdminUser, session.IPAddress,
+		escapeJSON(session.UserAgent), session.ExpiresAt.UTC().Format(time.RFC3339))
 
 	req, err := http.NewRequest("POST", queryURL, strings.NewReader(payload))
 	if err != nil {
@@ -276,7 +274,17 @@ func (c *SupabaseDBClient) CreateAdminSession(session *AdminSessionRecord) error
 	return nil
 }
 
-// GetAdminSessionByToken retrieves an admin session by token
+// escapeJSON escapes special characters for JSON string
+func escapeJSON(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	s = strings.ReplaceAll(s, "\t", `\t`)
+	return s
+}
+
+// GetAdminSessionByToken retrieves an admin session by token and populates user info
 func (c *SupabaseDBClient) GetAdminSessionByToken(token string) (*AdminSessionRecord, error) {
 	queryURL := fmt.Sprintf("%s/rest/v1/admin_sessions?token=eq.%s&limit=1",
 		c.URL, url.QueryEscape(token))
@@ -323,7 +331,62 @@ func (c *SupabaseDBClient) GetAdminSessionByToken(token string) (*AdminSessionRe
 		return nil, errors.New("session expired")
 	}
 
+	// Set UserID alias
+	session.UserID = session.AdminUser
+
+	// Fetch user info from admin_users table
+	user, err := c.GetAdminUserByID(session.AdminUser)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user info: %w", err)
+	}
+
+	// Populate user fields
+	session.Username = user.Username
+	session.Email = user.Email
+	session.FullName = user.FullName
+	session.Role = user.Role
+
 	return session, nil
+}
+
+// GetAdminUserByID fetches an admin user by ID from Supabase
+func (c *SupabaseDBClient) GetAdminUserByID(userID int) (*AdminUserRecord, error) {
+	queryURL := fmt.Sprintf("%s/rest/v1/admin_users?id=eq.%d&limit=1", c.URL, userID)
+
+	req, err := http.NewRequest("GET", queryURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("apikey", c.getAPIKey())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var users []AdminUserRecord
+	if err := json.Unmarshal(body, &users); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(users) == 0 {
+		return nil, errors.New("user not found")
+	}
+
+	return &users[0], nil
 }
 
 // DeleteAdminSession deletes an admin session by token

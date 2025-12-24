@@ -28,39 +28,48 @@ type SupabaseAuthController struct {
 	memoryCache    *SessionCache // In-memory cache for fast lookups
 }
 
+// CachedSession wraps AdminSessionRecord with cache metadata
+type CachedSession struct {
+	Session  *services.AdminSessionRecord
+	CachedAt time.Time
+}
+
 // SessionCache is an in-memory cache for sessions (backed by Supabase DB)
 type SessionCache struct {
 	mu       sync.RWMutex
-	sessions map[string]*services.AdminSessionRecord
+	sessions map[string]*CachedSession
 }
 
 // NewSessionCache creates a new session cache
 func NewSessionCache() *SessionCache {
 	cache := &SessionCache{
-		sessions: make(map[string]*services.AdminSessionRecord),
+		sessions: make(map[string]*CachedSession),
 	}
 	return cache
 }
 
 // Get retrieves a session from cache
-func (c *SessionCache) Get(token string) (*services.AdminSessionRecord, bool) {
+func (c *SessionCache) Get(token string) (*CachedSession, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	session, exists := c.sessions[token]
+	cached, exists := c.sessions[token]
 	if !exists {
 		return nil, false
 	}
-	if time.Now().After(session.ExpiresAt) {
+	if time.Now().After(cached.Session.ExpiresAt) {
 		return nil, false
 	}
-	return session, true
+	return cached, true
 }
 
 // Set stores a session in cache
 func (c *SessionCache) Set(token string, session *services.AdminSessionRecord) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.sessions[token] = session
+	c.sessions[token] = &CachedSession{
+		Session:  session,
+		CachedAt: time.Now(),
+	}
 }
 
 // Delete removes a session from cache
@@ -177,7 +186,8 @@ func (ac *SupabaseAuthController) Login(c *gin.Context) {
 
 	session := &services.AdminSessionRecord{
 		Token:     token,
-		UserID:    user.ID,
+		AdminUser: user.ID,
+		UserID:    user.ID, // Alias
 		Username:  user.Username,
 		Email:     user.Email,
 		FullName:  user.FullName,
@@ -185,7 +195,6 @@ func (ac *SupabaseAuthController) Login(c *gin.Context) {
 		IPAddress: c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
 		ExpiresAt: time.Now().Add(SessionDuration),
-		CreatedAt: time.Now(),
 	}
 
 	// Store session in Supabase DB (persisted across restarts)
@@ -228,12 +237,14 @@ func (ac *SupabaseAuthController) Logout(c *gin.Context) {
 // AuthMiddleware checks if user is authenticated
 func (ac *SupabaseAuthController) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		session, err := ac.getSessionFromCookie(c)
+		cached, err := ac.getSessionFromCookie(c)
 		if err != nil {
 			c.Redirect(http.StatusFound, "/admin/login")
 			c.Abort()
 			return
 		}
+
+		session := cached.Session
 
 		// Set admin user info in context
 		c.Set("admin_user_id", session.UserID)
@@ -243,10 +254,10 @@ func (ac *SupabaseAuthController) AuthMiddleware() gin.HandlerFunc {
 		c.Set("admin_role", session.Role)
 		c.Set("admin_session", session)
 
-		// Extend session if close to expiry (after SessionExtendAfter of activity)
+		// Extend session if cached for more than SessionExtendAfter
 		token, _ := c.Cookie("admin_session")
-		timeSinceCreation := time.Since(session.CreatedAt)
-		if timeSinceCreation > SessionExtendAfter {
+		timeSinceCached := time.Since(cached.CachedAt)
+		if timeSinceCached > SessionExtendAfter {
 			newExpiry := time.Now().Add(SessionDuration)
 			session.ExpiresAt = newExpiry
 			ac.memoryCache.Set(token, session)
@@ -261,15 +272,15 @@ func (ac *SupabaseAuthController) AuthMiddleware() gin.HandlerFunc {
 }
 
 // getSessionFromCookie retrieves the admin session from cookie
-func (ac *SupabaseAuthController) getSessionFromCookie(c *gin.Context) (*services.AdminSessionRecord, error) {
+func (ac *SupabaseAuthController) getSessionFromCookie(c *gin.Context) (*CachedSession, error) {
 	token, err := c.Cookie("admin_session")
 	if err != nil {
 		return nil, err
 	}
 
 	// Try memory cache first (fast)
-	if session, exists := ac.memoryCache.Get(token); exists {
-		return session, nil
+	if cached, exists := ac.memoryCache.Get(token); exists {
+		return cached, nil
 	}
 
 	// Fallback to Supabase DB (persisted sessions)
@@ -281,7 +292,9 @@ func (ac *SupabaseAuthController) getSessionFromCookie(c *gin.Context) (*service
 	// Cache in memory for faster future lookups
 	ac.memoryCache.Set(token, session)
 
-	return session, nil
+	// Return newly cached session
+	cached, _ := ac.memoryCache.Get(token)
+	return cached, nil
 }
 
 // generateSupabaseSessionToken generates a secure random session token
