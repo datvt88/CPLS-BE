@@ -674,3 +674,58 @@ func (ctrl *StockController) GetRealtimeStatus(c *gin.Context) {
 	status["websocket_url"] = "/admin/ws/realtime"
 	c.JSON(http.StatusOK, status)
 }
+
+// ==================== MongoDB Operations ====================
+
+// GetMongoDBStatus returns MongoDB Atlas connection status and statistics
+func (ctrl *StockController) GetMongoDBStatus(c *gin.Context) {
+	if services.GlobalMongoClient == nil || !services.GlobalMongoClient.IsConfigured() {
+		c.JSON(http.StatusOK, gin.H{
+			"configured": false,
+			"message":    "MongoDB Atlas not configured. Set MONGODB_URI environment variable to enable.",
+		})
+		return
+	}
+
+	stats, err := services.GlobalMongoClient.GetMongoDBStats()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// SyncToMongoDB syncs all local data to MongoDB Atlas
+func (ctrl *StockController) SyncToMongoDB(c *gin.Context) {
+	if services.GlobalMongoClient == nil || !services.GlobalMongoClient.IsConfigured() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MongoDB Atlas not configured"})
+		return
+	}
+
+	if err := services.GlobalMongoClient.SyncLocalToMongoDB(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Successfully synced all data to MongoDB Atlas",
+	})
+}
+
+// RestoreFromMongoDB restores all data from MongoDB Atlas to local storage
+func (ctrl *StockController) RestoreFromMongoDB(c *gin.Context) {
+	if services.GlobalMongoClient == nil || !services.GlobalMongoClient.IsConfigured() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MongoDB Atlas not configured"})
+		return
+	}
+
+	if err := services.GlobalMongoClient.SyncMongoDBToLocal(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Successfully restored all data from MongoDB Atlas",
+	})
+}
