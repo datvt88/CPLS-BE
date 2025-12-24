@@ -15,68 +15,38 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Session duration constants
+const (
+	SessionDuration     = 7 * 24 * time.Hour // 7 days session
+	SessionCookieMaxAge = 7 * 24 * 60 * 60   // 7 days in seconds
+	SessionExtendAfter  = 1 * time.Hour      // Extend session after 1 hour of activity
+)
+
 // SupabaseAuthController handles admin authentication via Supabase REST API
 type SupabaseAuthController struct {
 	supabaseClient *services.SupabaseDBClient
-	sessions       *SessionStore
+	memoryCache    *SessionCache // In-memory cache for fast lookups
 }
 
-// SessionStore stores admin sessions in memory (since we don't have direct DB access)
-type SessionStore struct {
+// SessionCache is an in-memory cache for sessions (backed by Supabase DB)
+type SessionCache struct {
 	mu       sync.RWMutex
-	sessions map[string]*AdminSessionData
+	sessions map[string]*services.AdminSessionRecord
 }
 
-// AdminSessionData represents a session stored in memory
-type AdminSessionData struct {
-	UserID    int
-	Username  string
-	Email     string
-	FullName  string
-	Role      string
-	IPAddress string
-	UserAgent string
-	ExpiresAt time.Time
-	CreatedAt time.Time
-}
-
-// NewSessionStore creates a new session store
-func NewSessionStore() *SessionStore {
-	store := &SessionStore{
-		sessions: make(map[string]*AdminSessionData),
+// NewSessionCache creates a new session cache
+func NewSessionCache() *SessionCache {
+	cache := &SessionCache{
+		sessions: make(map[string]*services.AdminSessionRecord),
 	}
-	// Start cleanup goroutine
-	go store.cleanupExpiredSessions()
-	return store
+	return cache
 }
 
-// cleanupExpiredSessions periodically removes expired sessions
-func (s *SessionStore) cleanupExpiredSessions() {
-	ticker := time.NewTicker(15 * time.Minute)
-	for range ticker.C {
-		s.mu.Lock()
-		now := time.Now()
-		for token, session := range s.sessions {
-			if now.After(session.ExpiresAt) {
-				delete(s.sessions, token)
-			}
-		}
-		s.mu.Unlock()
-	}
-}
-
-// Set stores a session
-func (s *SessionStore) Set(token string, session *AdminSessionData) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessions[token] = session
-}
-
-// Get retrieves a session
-func (s *SessionStore) Get(token string) (*AdminSessionData, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	session, exists := s.sessions[token]
+// Get retrieves a session from cache
+func (c *SessionCache) Get(token string) (*services.AdminSessionRecord, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	session, exists := c.sessions[token]
 	if !exists {
 		return nil, false
 	}
@@ -86,15 +56,22 @@ func (s *SessionStore) Get(token string) (*AdminSessionData, bool) {
 	return session, true
 }
 
-// Delete removes a session
-func (s *SessionStore) Delete(token string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessions, token)
+// Set stores a session in cache
+func (c *SessionCache) Set(token string, session *services.AdminSessionRecord) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sessions[token] = session
 }
 
-// Global session store
-var globalSessionStore = NewSessionStore()
+// Delete removes a session from cache
+func (c *SessionCache) Delete(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.sessions, token)
+}
+
+// Global session cache
+var globalSessionCache = NewSessionCache()
 
 // NewSupabaseAuthController creates a new Supabase auth controller
 func NewSupabaseAuthController() (*SupabaseAuthController, error) {
@@ -103,10 +80,25 @@ func NewSupabaseAuthController() (*SupabaseAuthController, error) {
 		return nil, err
 	}
 
-	return &SupabaseAuthController{
+	controller := &SupabaseAuthController{
 		supabaseClient: client,
-		sessions:       globalSessionStore,
-	}, nil
+		memoryCache:    globalSessionCache,
+	}
+
+	// Start background cleanup goroutine
+	go controller.startSessionCleanup()
+
+	return controller, nil
+}
+
+// startSessionCleanup periodically cleans up expired sessions from Supabase
+func (ac *SupabaseAuthController) startSessionCleanup() {
+	ticker := time.NewTicker(30 * time.Minute)
+	for range ticker.C {
+		if err := ac.supabaseClient.CleanupExpiredSessions(); err != nil {
+			log.Printf("Session cleanup error: %v", err)
+		}
+	}
 }
 
 // isSecureModeSupabase returns true if running in production mode (HTTPS)
@@ -183,7 +175,8 @@ func (ac *SupabaseAuthController) Login(c *gin.Context) {
 		return
 	}
 
-	session := &AdminSessionData{
+	session := &services.AdminSessionRecord{
+		Token:     token,
 		UserID:    user.ID,
 		Username:  user.Username,
 		Email:     user.Email,
@@ -191,12 +184,18 @@ func (ac *SupabaseAuthController) Login(c *gin.Context) {
 		Role:      user.Role,
 		IPAddress: c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
-		ExpiresAt: time.Now().Add(24 * time.Hour),
+		ExpiresAt: time.Now().Add(SessionDuration),
 		CreatedAt: time.Now(),
 	}
 
-	// Store session in memory
-	ac.sessions.Set(token, session)
+	// Store session in Supabase DB (persisted across restarts)
+	if err := ac.supabaseClient.CreateAdminSession(session); err != nil {
+		log.Printf("Failed to create session in DB: %v", err)
+		// Fallback: still allow login even if DB save fails
+	}
+
+	// Also cache in memory for fast lookups
+	ac.memoryCache.Set(token, session)
 
 	// Update last login in Supabase (async, don't block login)
 	go func() {
@@ -205,8 +204,8 @@ func (ac *SupabaseAuthController) Login(c *gin.Context) {
 		}
 	}()
 
-	// Set session cookie
-	c.SetCookie("admin_session", token, 86400, "/admin", "", isSecureModeSupabase(), true)
+	// Set session cookie (7 days)
+	c.SetCookie("admin_session", token, SessionCookieMaxAge, "/admin", "", isSecureModeSupabase(), true)
 
 	log.Printf("Admin user %s logged in successfully via Supabase", username)
 	c.Redirect(http.StatusFound, "/admin")
@@ -216,7 +215,10 @@ func (ac *SupabaseAuthController) Login(c *gin.Context) {
 func (ac *SupabaseAuthController) Logout(c *gin.Context) {
 	token, err := c.Cookie("admin_session")
 	if err == nil && token != "" {
-		ac.sessions.Delete(token)
+		// Delete from memory cache
+		ac.memoryCache.Delete(token)
+		// Delete from Supabase DB
+		ac.supabaseClient.DeleteAdminSession(token)
 	}
 
 	c.SetCookie("admin_session", "", -1, "/admin", "", isSecureModeSupabase(), true)
@@ -240,21 +242,44 @@ func (ac *SupabaseAuthController) AuthMiddleware() gin.HandlerFunc {
 		c.Set("admin_fullname", session.FullName)
 		c.Set("admin_role", session.Role)
 		c.Set("admin_session", session)
+
+		// Extend session if close to expiry (after SessionExtendAfter of activity)
+		token, _ := c.Cookie("admin_session")
+		timeSinceCreation := time.Since(session.CreatedAt)
+		if timeSinceCreation > SessionExtendAfter {
+			newExpiry := time.Now().Add(SessionDuration)
+			session.ExpiresAt = newExpiry
+			ac.memoryCache.Set(token, session)
+			// Extend in DB asynchronously
+			go ac.supabaseClient.ExtendAdminSession(token, newExpiry)
+			// Refresh cookie
+			c.SetCookie("admin_session", token, SessionCookieMaxAge, "/admin", "", isSecureModeSupabase(), true)
+		}
+
 		c.Next()
 	}
 }
 
 // getSessionFromCookie retrieves the admin session from cookie
-func (ac *SupabaseAuthController) getSessionFromCookie(c *gin.Context) (*AdminSessionData, error) {
+func (ac *SupabaseAuthController) getSessionFromCookie(c *gin.Context) (*services.AdminSessionRecord, error) {
 	token, err := c.Cookie("admin_session")
 	if err != nil {
 		return nil, err
 	}
 
-	session, exists := ac.sessions.Get(token)
-	if !exists {
-		return nil, http.ErrNoCookie
+	// Try memory cache first (fast)
+	if session, exists := ac.memoryCache.Get(token); exists {
+		return session, nil
 	}
+
+	// Fallback to Supabase DB (persisted sessions)
+	session, err := ac.supabaseClient.GetAdminSessionByToken(token)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache in memory for faster future lookups
+	ac.memoryCache.Set(token, session)
 
 	return session, nil
 }

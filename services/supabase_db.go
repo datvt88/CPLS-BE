@@ -219,6 +219,184 @@ func (c *SupabaseDBClient) TestConnection() error {
 	return nil
 }
 
+// AdminSessionRecord represents an admin session in the database
+type AdminSessionRecord struct {
+	ID          int       `json:"id"`
+	Token       string    `json:"token"`
+	UserID      int       `json:"user_id"`
+	Username    string    `json:"username"`
+	Email       string    `json:"email"`
+	FullName    string    `json:"full_name"`
+	Role        string    `json:"role"`
+	IPAddress   string    `json:"ip_address"`
+	UserAgent   string    `json:"user_agent"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// CreateAdminSession creates a new admin session in Supabase
+func (c *SupabaseDBClient) CreateAdminSession(session *AdminSessionRecord) error {
+	queryURL := fmt.Sprintf("%s/rest/v1/admin_sessions", c.URL)
+
+	payload := fmt.Sprintf(`{
+		"token": "%s",
+		"user_id": %d,
+		"username": "%s",
+		"email": "%s",
+		"full_name": "%s",
+		"role": "%s",
+		"ip_address": "%s",
+		"user_agent": "%s",
+		"expires_at": "%s"
+	}`, session.Token, session.UserID, session.Username, session.Email,
+		session.FullName, session.Role, session.IPAddress, session.UserAgent,
+		session.ExpiresAt.UTC().Format(time.RFC3339))
+
+	req, err := http.NewRequest("POST", queryURL, strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("apikey", c.getAPIKey())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Prefer", "return=minimal")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create session (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// GetAdminSessionByToken retrieves an admin session by token
+func (c *SupabaseDBClient) GetAdminSessionByToken(token string) (*AdminSessionRecord, error) {
+	queryURL := fmt.Sprintf("%s/rest/v1/admin_sessions?token=eq.%s&limit=1",
+		c.URL, url.QueryEscape(token))
+
+	req, err := http.NewRequest("GET", queryURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("apikey", c.getAPIKey())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var sessions []AdminSessionRecord
+	if err := json.Unmarshal(body, &sessions); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(sessions) == 0 {
+		return nil, errors.New("session not found")
+	}
+
+	session := &sessions[0]
+
+	// Check if session is expired
+	if time.Now().After(session.ExpiresAt) {
+		// Delete expired session
+		c.DeleteAdminSession(token)
+		return nil, errors.New("session expired")
+	}
+
+	return session, nil
+}
+
+// DeleteAdminSession deletes an admin session by token
+func (c *SupabaseDBClient) DeleteAdminSession(token string) error {
+	queryURL := fmt.Sprintf("%s/rest/v1/admin_sessions?token=eq.%s",
+		c.URL, url.QueryEscape(token))
+
+	req, err := http.NewRequest("DELETE", queryURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("apikey", c.getAPIKey())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return nil
+}
+
+// ExtendAdminSession extends the session expiration time
+func (c *SupabaseDBClient) ExtendAdminSession(token string, newExpiry time.Time) error {
+	queryURL := fmt.Sprintf("%s/rest/v1/admin_sessions?token=eq.%s",
+		c.URL, url.QueryEscape(token))
+
+	payload := fmt.Sprintf(`{"expires_at": "%s"}`, newExpiry.UTC().Format(time.RFC3339))
+
+	req, err := http.NewRequest("PATCH", queryURL, strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("apikey", c.getAPIKey())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Prefer", "return=minimal")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return nil
+}
+
+// CleanupExpiredSessions removes all expired sessions from the database
+func (c *SupabaseDBClient) CleanupExpiredSessions() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	queryURL := fmt.Sprintf("%s/rest/v1/admin_sessions?expires_at=lt.%s",
+		c.URL, url.QueryEscape(now))
+
+	req, err := http.NewRequest("DELETE", queryURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("apikey", c.getAPIKey())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.getAPIKey()))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return nil
+}
+
 // GetAdminUserCount returns the count of admin users
 func (c *SupabaseDBClient) GetAdminUserCount() (int64, error) {
 	queryURL := fmt.Sprintf("%s/rest/v1/admin_users?select=count", c.URL)

@@ -35,8 +35,9 @@ type ExtendedStockIndicators struct {
 	MACDHist   float64 `json:"macd_hist"`   // MACD Histogram
 
 	// Volume
-	AvgVol   float64 `json:"avg_vol"`    // 20-day average volume
-	VolRatio float64 `json:"vol_ratio"`  // Current vol / Avg vol
+	AvgVol         float64 `json:"avg_vol"`           // 5-day average volume
+	AvgTradingVal  float64 `json:"avg_trading_val"`   // 5-day average trading value (volume * price)
+	VolRatio       float64 `json:"vol_ratio"`         // Current vol / Avg vol
 
 	// RSI
 	RSI float64 `json:"rsi"` // 14-day RSI
@@ -46,6 +47,10 @@ type ExtendedStockIndicators struct {
 	MA30  float64 `json:"ma_30"`
 	MA50  float64 `json:"ma_50"`
 	MA200 float64 `json:"ma_200"`
+
+	// MA Conditions (for filtering)
+	MA10AboveMA30  bool `json:"ma10_above_ma30"`  // MA10 >= MA30
+	MA50AboveMA200 bool `json:"ma50_above_ma200"` // MA50 >= MA200
 
 	// Price info
 	CurrentPrice float64 `json:"current_price"`
@@ -237,6 +242,27 @@ func CalculateAvgVolume(volumes []float64, period int) float64 {
 	return math.Round(sum / float64(period))
 }
 
+// CalculateAvgTradingValue calculates average trading value (volume * close price) over period
+func CalculateAvgTradingValue(volumes []float64, prices []float64, period int) float64 {
+	if len(volumes) < period || len(prices) < period {
+		if len(volumes) < len(prices) {
+			period = len(volumes)
+		} else {
+			period = len(prices)
+		}
+	}
+	if period == 0 {
+		return 0
+	}
+
+	sum := 0.0
+	for i := 0; i < period; i++ {
+		sum += volumes[i] * prices[i]
+	}
+
+	return math.Round(sum / float64(period))
+}
+
 // CalculateIndicatorsForStock calculates all indicators for a single stock
 func CalculateIndicatorsForStock(priceFile *StockPriceFile) *ExtendedStockIndicators {
 	if priceFile == nil || len(priceFile.Prices) < 10 {
@@ -278,11 +304,18 @@ func CalculateIndicatorsForStock(priceFile *StockPriceFile) *ExtendedStockIndica
 		indicators.VolRatio = math.Round((volumes[0]/indicators.AvgVol)*100) / 100
 	}
 
+	// Average Trading Value (5-day) = volume * price
+	indicators.AvgTradingVal = CalculateAvgTradingValue(volumes, closePrices, 5)
+
 	// Moving Averages
 	indicators.MA10 = math.Round(CalculateMA(closePrices, 10)*100) / 100
 	indicators.MA30 = math.Round(CalculateMA(closePrices, 30)*100) / 100
 	indicators.MA50 = math.Round(CalculateMA(closePrices, 50)*100) / 100
 	indicators.MA200 = math.Round(CalculateMA(closePrices, 200)*100) / 100
+
+	// MA Conditions
+	indicators.MA10AboveMA30 = indicators.MA10 > 0 && indicators.MA30 > 0 && indicators.MA10 >= indicators.MA30
+	indicators.MA50AboveMA200 = indicators.MA50 > 0 && indicators.MA200 > 0 && indicators.MA50 >= indicators.MA200
 
 	return indicators
 }
@@ -659,14 +692,38 @@ func (s *StockIndicatorService) GetStockIndicators(code string) (*ExtendedStockI
 
 // FilterStocksByIndicators filters stocks by indicator criteria
 type IndicatorFilter struct {
+	// RS Filters
 	RSAvgMin   float64 `json:"rs_avg_min"`
 	RSAvgMax   float64 `json:"rs_avg_max"`
-	RSIMin     float64 `json:"rsi_min"`
-	RSIMax     float64 `json:"rsi_max"`
-	MACDHistPositive *bool `json:"macd_hist_positive"`
-	AboveMA50  *bool   `json:"above_ma50"`
-	AboveMA200 *bool   `json:"above_ma200"`
-	MinVolume  float64 `json:"min_volume"`
+	RS3DMin    float64 `json:"rs_3d_min"`
+	RS3DMax    float64 `json:"rs_3d_max"`
+	RS1MMin    float64 `json:"rs_1m_min"`
+	RS1MMax    float64 `json:"rs_1m_max"`
+	RS3MMin    float64 `json:"rs_3m_min"`
+	RS3MMax    float64 `json:"rs_3m_max"`
+	RS1YMin    float64 `json:"rs_1y_min"`
+	RS1YMax    float64 `json:"rs_1y_max"`
+
+	// MACD Filters
+	MACDHistMin      *float64 `json:"macd_hist_min"`
+	MACDHistMax      *float64 `json:"macd_hist_max"`
+	MACDHistPositive *bool    `json:"macd_hist_positive"`
+
+	// RSI Filters
+	RSIMin float64 `json:"rsi_min"`
+	RSIMax float64 `json:"rsi_max"`
+
+	// Volume/Trading Value Filters
+	MinVolume     float64 `json:"min_volume"`
+	MinTradingVal float64 `json:"min_trading_val"`
+
+	// MA Condition Filters
+	MA10AboveMA30  *bool `json:"ma10_above_ma30"`
+	MA50AboveMA200 *bool `json:"ma50_above_ma200"`
+
+	// Price vs MA Filters
+	AboveMA50  *bool `json:"above_ma50"`
+	AboveMA200 *bool `json:"above_ma200"`
 }
 
 // FilterStocks filters stocks by indicator criteria
@@ -688,17 +745,59 @@ func (s *StockIndicatorService) FilterStocks(filter IndicatorFilter) ([]string, 
 			continue
 		}
 
-		// Apply filters
+		// RS Avg Filter
 		if filter.RSAvgMin > 0 && ind.RSAvg < filter.RSAvgMin {
 			continue
 		}
 		if filter.RSAvgMax > 0 && ind.RSAvg > filter.RSAvgMax {
 			continue
 		}
+
+		// RS3D Filter (rank)
+		if filter.RS3DMin > 0 && ind.RS3DRank < filter.RS3DMin {
+			continue
+		}
+		if filter.RS3DMax > 0 && ind.RS3DRank > filter.RS3DMax {
+			continue
+		}
+
+		// RS1M Filter (rank)
+		if filter.RS1MMin > 0 && ind.RS1MRank < filter.RS1MMin {
+			continue
+		}
+		if filter.RS1MMax > 0 && ind.RS1MRank > filter.RS1MMax {
+			continue
+		}
+
+		// RS3M Filter (rank)
+		if filter.RS3MMin > 0 && ind.RS3MRank < filter.RS3MMin {
+			continue
+		}
+		if filter.RS3MMax > 0 && ind.RS3MRank > filter.RS3MMax {
+			continue
+		}
+
+		// RS1Y Filter (rank)
+		if filter.RS1YMin > 0 && ind.RS1YRank < filter.RS1YMin {
+			continue
+		}
+		if filter.RS1YMax > 0 && ind.RS1YRank > filter.RS1YMax {
+			continue
+		}
+
+		// RSI Filter
 		if filter.RSIMin > 0 && ind.RSI < filter.RSIMin {
 			continue
 		}
 		if filter.RSIMax > 0 && ind.RSI > filter.RSIMax {
+			continue
+		}
+
+		// MACD Histogram Filters
+		if filter.MACDHistMin != nil && ind.MACDHist < *filter.MACDHistMin {
+			continue
+		}
+		if filter.MACDHistMax != nil && ind.MACDHist > *filter.MACDHistMax {
 			continue
 		}
 		if filter.MACDHistPositive != nil {
@@ -709,6 +808,26 @@ func (s *StockIndicatorService) FilterStocks(filter IndicatorFilter) ([]string, 
 				continue
 			}
 		}
+
+		// Volume Filter
+		if filter.MinVolume > 0 && ind.AvgVol < filter.MinVolume {
+			continue
+		}
+
+		// Trading Value Filter
+		if filter.MinTradingVal > 0 && ind.AvgTradingVal < filter.MinTradingVal {
+			continue
+		}
+
+		// MA Condition Filters
+		if filter.MA10AboveMA30 != nil && *filter.MA10AboveMA30 && !ind.MA10AboveMA30 {
+			continue
+		}
+		if filter.MA50AboveMA200 != nil && *filter.MA50AboveMA200 && !ind.MA50AboveMA200 {
+			continue
+		}
+
+		// Price vs MA Filters
 		if filter.AboveMA50 != nil && ind.MA50 > 0 {
 			if *filter.AboveMA50 && ind.CurrentPrice <= ind.MA50 {
 				continue
@@ -724,9 +843,6 @@ func (s *StockIndicatorService) FilterStocks(filter IndicatorFilter) ([]string, 
 			if !*filter.AboveMA200 && ind.CurrentPrice > ind.MA200 {
 				continue
 			}
-		}
-		if filter.MinVolume > 0 && ind.AvgVol < filter.MinVolume {
-			continue
 		}
 
 		results = append(results, code)
