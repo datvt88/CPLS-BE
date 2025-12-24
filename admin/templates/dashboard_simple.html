@@ -269,12 +269,27 @@
                         statsEl.innerHTML = statsHtml;
 
                         infoEl.textContent = 'Persistent Storage';
+                    } else if (data.uri_set) {
+                        // URI is set but connection failed
+                        statusEl.innerHTML = '<i class="bi bi-exclamation-triangle text-danger"></i> Connection Failed';
+                        statusEl.className = 'card-title text-danger';
+                        cardEl.style.borderLeftColor = '#e74c3c';
+                        infoEl.textContent = 'Click to retry';
+
+                        let errorMsg = data.error || data.message || 'Unknown error';
+                        statsEl.innerHTML = `
+                            <p class="text-danger mb-2"><strong>Error:</strong> ${errorMsg}</p>
+                            <button class="btn btn-sm btn-outline-primary" onclick="reconnectMongoDB()">
+                                <i class="bi bi-arrow-repeat"></i> Reconnect
+                            </button>
+                        `;
                     } else {
+                        // URI not set
                         statusEl.innerHTML = '<i class="bi bi-x-circle text-warning"></i> Not Configured';
                         statusEl.className = 'card-title text-warning';
                         cardEl.style.borderLeftColor = '#f39c12';
                         infoEl.textContent = 'Set MONGODB_URI';
-                        statsEl.innerHTML = '<p class="text-muted mb-0">MongoDB not configured. Set <code>MONGODB_URI</code> environment variable to enable persistent storage.</p>';
+                        statsEl.innerHTML = '<p class="text-muted mb-0">Set <code>MONGODB_URI</code> environment variable to enable persistent storage.</p>';
                     }
                 })
                 .catch(error => {
@@ -283,7 +298,28 @@
                     statusEl.innerHTML = '<i class="bi bi-exclamation-triangle text-danger"></i> Error';
                     statusEl.className = 'card-title text-danger';
                     cardEl.style.borderLeftColor = '#e74c3c';
-                    document.getElementById('mongodb-stats').innerHTML = '<p class="text-danger mb-0">Failed to check status</p>';
+                    document.getElementById('mongodb-stats').innerHTML = '<p class="text-danger mb-0">Failed to check status: ' + error + '</p>';
+                });
+        }
+
+        function reconnectMongoDB() {
+            const statsEl = document.getElementById('mongodb-stats');
+            statsEl.innerHTML = '<p class="text-info mb-0"><i class="bi bi-hourglass-split"></i> Reconnecting...</p>';
+
+            fetch('/admin/api/mongodb/reconnect', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Successfully reconnected to MongoDB Atlas!');
+                        checkMongoDBStatus();
+                    } else {
+                        alert('Reconnection failed: ' + (data.error || 'Unknown error'));
+                        checkMongoDBStatus();
+                    }
+                })
+                .catch(error => {
+                    alert('Error: ' + error);
+                    checkMongoDBStatus();
                 });
         }
 

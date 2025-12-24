@@ -24,10 +24,12 @@ const (
 
 // MongoDBClient handles MongoDB Atlas connection and operations
 type MongoDBClient struct {
-	client     *mongo.Client
-	database   *mongo.Database
-	mu         sync.RWMutex
+	client      *mongo.Client
+	database    *mongo.Database
+	mu          sync.RWMutex
 	isConnected bool
+	uriSet      bool   // Whether MONGODB_URI is configured
+	lastError   string // Last connection error message
 }
 
 // MongoStockList represents stock list document in MongoDB
@@ -63,50 +65,123 @@ func InitMongoDBClient() error {
 	mongoURI := os.Getenv("MONGODB_URI")
 	if mongoURI == "" {
 		log.Println("MONGODB_URI not set, MongoDB storage disabled")
+		GlobalMongoClient = &MongoDBClient{
+			uriSet:    false,
+			lastError: "MONGODB_URI environment variable not set",
+		}
 		return nil
 	}
 
-	GlobalMongoClient = &MongoDBClient{}
+	// Initialize with URI set flag
+	GlobalMongoClient = &MongoDBClient{
+		uriSet: true,
+	}
+
+	return GlobalMongoClient.Connect()
+}
+
+// Connect establishes connection to MongoDB Atlas
+func (m *MongoDBClient) Connect() error {
+	mongoURI := os.Getenv("MONGODB_URI")
+	if mongoURI == "" {
+		m.lastError = "MONGODB_URI environment variable not set"
+		return fmt.Errorf(m.lastError)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Configure client options
+	// Configure client options with retry
 	clientOptions := options.Client().
 		ApplyURI(mongoURI).
 		SetServerAPIOptions(options.ServerAPI(options.ServerAPIVersion1)).
 		SetMaxPoolSize(10).
 		SetMinPoolSize(2).
-		SetMaxConnIdleTime(30 * time.Second)
+		SetMaxConnIdleTime(30 * time.Second).
+		SetConnectTimeout(30 * time.Second).
+		SetRetryWrites(true).
+		SetRetryReads(true)
 
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
+		m.lastError = fmt.Sprintf("Failed to connect: %v", err)
 		log.Printf("Failed to connect to MongoDB Atlas: %v", err)
 		return err
 	}
 
-	// Verify connection
+	// Verify connection with ping
 	if err := client.Ping(ctx, nil); err != nil {
+		m.lastError = fmt.Sprintf("Failed to ping: %v", err)
 		log.Printf("Failed to ping MongoDB Atlas: %v", err)
+		// Disconnect on ping failure
+		client.Disconnect(ctx)
 		return err
 	}
 
-	GlobalMongoClient.client = client
-	GlobalMongoClient.database = client.Database(MongoDBName)
-	GlobalMongoClient.isConnected = true
+	m.mu.Lock()
+	m.client = client
+	m.database = client.Database(MongoDBName)
+	m.isConnected = true
+	m.lastError = ""
+	m.mu.Unlock()
 
 	// Create indexes
-	GlobalMongoClient.createIndexes()
+	m.createIndexes()
 
 	log.Println("MongoDB Atlas connected successfully")
 	return nil
 }
 
-// IsConfigured returns whether MongoDB is configured
+// Reconnect attempts to reconnect to MongoDB Atlas
+func (m *MongoDBClient) Reconnect() error {
+	m.mu.Lock()
+	if m.client != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		m.client.Disconnect(ctx)
+		cancel()
+	}
+	m.isConnected = false
+	m.mu.Unlock()
+
+	return m.Connect()
+}
+
+// IsConfigured returns whether MongoDB is configured and connected
 func (m *MongoDBClient) IsConfigured() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.isConnected
+}
+
+// IsURISet returns whether MONGODB_URI environment variable is set
+func (m *MongoDBClient) IsURISet() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.uriSet
+}
+
+// GetLastError returns the last connection error
+func (m *MongoDBClient) GetLastError() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastError
+}
+
+// GetConnectionStatus returns detailed connection status
+func (m *MongoDBClient) GetConnectionStatus() map[string]interface{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	status := map[string]interface{}{
+		"uri_set":   m.uriSet,
+		"connected": m.isConnected,
+	}
+
+	if m.lastError != "" {
+		status["error"] = m.lastError
+	}
+
+	return status
 }
 
 // Close closes the MongoDB connection
