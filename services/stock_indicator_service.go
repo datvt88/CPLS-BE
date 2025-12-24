@@ -242,7 +242,9 @@ func CalculateAvgVolume(volumes []float64, period int) float64 {
 	return math.Round(sum / float64(period))
 }
 
-// CalculateAvgTradingValue calculates average trading value (volume * close price) over period
+// CalculateAvgTradingValue calculates average trading value in billions VND (tỷ đồng) over period
+// Formula: Avg Trading Val (tỷ) = SUM(Vol × Price × 1000) / period / 1,000,000,000
+// Since Price is in 1000 VND units: = SUM(Vol × Price) / period / 1,000,000
 func CalculateAvgTradingValue(volumes []float64, prices []float64, period int) float64 {
 	if len(volumes) < period || len(prices) < period {
 		if len(volumes) < len(prices) {
@@ -257,10 +259,16 @@ func CalculateAvgTradingValue(volumes []float64, prices []float64, period int) f
 
 	sum := 0.0
 	for i := 0; i < period; i++ {
+		// Trading value = Volume × Price (Price is in 1000 VND)
 		sum += volumes[i] * prices[i]
 	}
 
-	return math.Round(sum / float64(period))
+	// Convert to billions VND (tỷ đồng): divide by 1,000,000
+	// (Vol × Price × 1000) / 1,000,000,000 = (Vol × Price) / 1,000,000
+	avgInBillions := (sum / float64(period)) / 1000000
+
+	// Round to 2 decimal places
+	return math.Round(avgInBillions*100) / 100
 }
 
 // CalculateIndicatorsForStock calculates all indicators for a single stock
