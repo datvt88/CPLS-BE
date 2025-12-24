@@ -132,6 +132,15 @@ func main() {
 		}
 	}
 
+	// Close MongoDB connection
+	if services.GlobalMongoClient != nil {
+		if err := services.GlobalMongoClient.Close(); err != nil {
+			log.Printf("Error closing MongoDB: %v", err)
+		} else {
+			log.Println("MongoDB connection closed successfully")
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	server.Shutdown(ctx)
@@ -148,11 +157,11 @@ func initLocalServices() {
 		log.Println("DuckDB initialized successfully")
 	}
 
-	// Initialize Supabase Storage Service for cloud persistence
-	if err := services.InitStorageService(); err != nil {
-		log.Printf("Warning: Failed to initialize Storage Service: %v", err)
-	} else {
-		log.Println("Storage Service initialized successfully")
+	// Initialize MongoDB Atlas for cloud persistence (persists across deploys)
+	if err := services.InitMongoDBClient(); err != nil {
+		log.Printf("Warning: Failed to initialize MongoDB Atlas: %v", err)
+	} else if services.GlobalMongoClient != nil && services.GlobalMongoClient.IsConfigured() {
+		log.Println("MongoDB Atlas initialized successfully")
 	}
 
 	// Initialize Stock Scheduler
@@ -183,7 +192,32 @@ func initLocalServices() {
 		log.Println("Realtime Price Service initialized successfully")
 	}
 
+	// Restore data from MongoDB if local data is missing (after redeploy)
+	restoreDataFromMongoDB()
+
 	log.Println("Local services initialized")
+}
+
+// restoreDataFromMongoDB restores data from MongoDB Atlas if local data is missing
+func restoreDataFromMongoDB() {
+	if services.GlobalMongoClient == nil || !services.GlobalMongoClient.IsConfigured() {
+		return
+	}
+
+	// Check if local price data exists
+	if services.GlobalPriceService != nil && !services.GlobalPriceService.HasLocalPriceData() {
+		log.Println("Local price data not found, attempting restore from MongoDB Atlas...")
+		if err := services.GlobalPriceService.RestoreFromMongoDB(); err != nil {
+			log.Printf("Warning: Could not restore price data from MongoDB: %v", err)
+		}
+	}
+
+	// Load indicators from MongoDB if not cached locally
+	if services.GlobalIndicatorService != nil {
+		if _, err := services.GlobalIndicatorService.LoadIndicatorSummary(); err != nil {
+			log.Printf("Note: Indicators will be calculated when needed: %v", err)
+		}
+	}
 }
 
 // initializeConnection initializes database or Supabase connection
@@ -440,6 +474,14 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				realtimeAPI.GET("/status", stockCtrl.GetRealtimeStatus)
 				realtimeAPI.POST("/start", stockCtrl.StartRealtimePolling)
 				realtimeAPI.POST("/stop", stockCtrl.StopRealtimePolling)
+			}
+
+			// MongoDB Atlas API
+			mongoAPI := protected.Group("/api/mongodb")
+			{
+				mongoAPI.GET("/status", stockCtrl.GetMongoDBStatus)
+				mongoAPI.POST("/sync-to", stockCtrl.SyncToMongoDB)
+				mongoAPI.POST("/restore-from", stockCtrl.RestoreFromMongoDB)
 			}
 		}
 

@@ -294,7 +294,7 @@ func (s *StockPriceService) FetchStockPrice(code string, size int) (*VNDirectPri
 	return &priceResp, nil
 }
 
-// SaveStockPrice saves price data to file and DuckDB
+// SaveStockPrice saves price data to file, DuckDB, and MongoDB
 func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData) error {
 	priceFile := StockPriceFile{
 		Code:        code,
@@ -313,19 +313,30 @@ func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData)
 		return fmt.Errorf("failed to write price file: %w", err)
 	}
 
+	// Save to DuckDB
 	if GlobalDuckDB != nil {
 		if err := GlobalDuckDB.SavePriceHistory(code, prices); err != nil {
 			log.Printf("Warning: failed to save %s prices to DuckDB: %v", code, err)
 		}
 	}
 
+	// Save to MongoDB Atlas (async to not block)
+	go func() {
+		if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
+			if err := GlobalMongoClient.SavePriceData(code, &priceFile); err != nil {
+				log.Printf("Warning: failed to save %s prices to MongoDB: %v", code, err)
+			}
+		}
+	}()
+
 	return nil
 }
 
-// LoadStockPrice loads price data from file or DuckDB
+// LoadStockPrice loads price data from file, DuckDB, or MongoDB Atlas
 func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error) {
 	filePath := filepath.Join(StockPriceDir, fmt.Sprintf("%s.json", code))
 
+	// Try local file first (fastest)
 	data, err := os.ReadFile(filePath)
 	if err == nil {
 		var priceFile StockPriceFile
@@ -334,6 +345,7 @@ func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error)
 		}
 	}
 
+	// Try DuckDB (local database)
 	if GlobalDuckDB != nil {
 		prices, err := GlobalDuckDB.LoadPriceHistory(code, 270)
 		if err == nil && len(prices) > 0 {
@@ -345,6 +357,21 @@ func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error)
 			}
 			if cacheData, err := json.MarshalIndent(priceFile, "", "  "); err == nil {
 				os.WriteFile(filePath, cacheData, 0644)
+			}
+			return priceFile, nil
+		}
+	}
+
+	// Fallback to MongoDB Atlas (persists across deploys)
+	if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
+		priceFile, err := GlobalMongoClient.LoadPriceData(code)
+		if err == nil && priceFile != nil && len(priceFile.Prices) > 0 {
+			// Cache to local file and DuckDB for faster future reads
+			if cacheData, err := json.MarshalIndent(priceFile, "", "  "); err == nil {
+				os.WriteFile(filePath, cacheData, 0644)
+			}
+			if GlobalDuckDB != nil {
+				GlobalDuckDB.SavePriceHistory(code, priceFile.Prices)
 			}
 			return priceFile, nil
 		}
@@ -651,4 +678,110 @@ func (s *StockPriceService) GetPriceSyncStats() (map[string]interface{}, error) 
 	}
 
 	return stats, nil
+}
+
+// HasLocalPriceData checks if local price data exists
+func (s *StockPriceService) HasLocalPriceData() bool {
+	files, err := os.ReadDir(StockPriceDir)
+	if err != nil {
+		return false
+	}
+
+	count := 0
+	for _, file := range files {
+		if filepath.Ext(file.Name()) == ".json" {
+			count++
+			if count >= 10 { // At least 10 price files exist
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// RestoreFromMongoDB restores all price data from MongoDB Atlas
+// This should be called on startup if local data is missing (after redeploy)
+func (s *StockPriceService) RestoreFromMongoDB() error {
+	if GlobalMongoClient == nil || !GlobalMongoClient.IsConfigured() {
+		return fmt.Errorf("MongoDB not configured")
+	}
+
+	log.Println("Restoring price data from MongoDB Atlas...")
+
+	priceFiles, err := GlobalMongoClient.LoadAllPriceData()
+	if err != nil {
+		return fmt.Errorf("failed to load price data from MongoDB: %w", err)
+	}
+
+	if len(priceFiles) == 0 {
+		return fmt.Errorf("no price data found in MongoDB")
+	}
+
+	// Ensure directory exists
+	os.MkdirAll(StockPriceDir, 0755)
+
+	savedCount := 0
+	for code, priceFile := range priceFiles {
+		if priceFile == nil || len(priceFile.Prices) == 0 {
+			continue
+		}
+
+		// Save to local file
+		data, err := json.MarshalIndent(priceFile, "", "  ")
+		if err != nil {
+			continue
+		}
+
+		filePath := filepath.Join(StockPriceDir, fmt.Sprintf("%s.json", code))
+		if err := os.WriteFile(filePath, data, 0644); err != nil {
+			continue
+		}
+
+		// Also save to DuckDB if available
+		if GlobalDuckDB != nil {
+			GlobalDuckDB.SavePriceHistory(code, priceFile.Prices)
+		}
+
+		savedCount++
+	}
+
+	log.Printf("Restored price data for %d stocks from MongoDB Atlas", savedCount)
+	return nil
+}
+
+// SyncAllToMongoDB syncs all local price data to MongoDB Atlas
+func (s *StockPriceService) SyncAllToMongoDB() error {
+	if GlobalMongoClient == nil || !GlobalMongoClient.IsConfigured() {
+		return fmt.Errorf("MongoDB not configured")
+	}
+
+	files, err := os.ReadDir(StockPriceDir)
+	if err != nil {
+		return fmt.Errorf("failed to read price directory: %w", err)
+	}
+
+	priceFiles := make(map[string]*StockPriceFile)
+	for _, file := range files {
+		if filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		code := file.Name()[:len(file.Name())-5]
+		priceFile, err := s.LoadStockPrice(code)
+		if err != nil {
+			continue
+		}
+		priceFiles[code] = priceFile
+	}
+
+	if len(priceFiles) == 0 {
+		return fmt.Errorf("no price files to sync")
+	}
+
+	if err := GlobalMongoClient.SaveAllPriceData(priceFiles); err != nil {
+		return fmt.Errorf("failed to sync price data to MongoDB: %w", err)
+	}
+
+	log.Printf("Synced %d price files to MongoDB Atlas", len(priceFiles))
+	return nil
 }

@@ -583,7 +583,7 @@ func (s *StockIndicatorService) SaveIndicatorSummary(indicators map[string]*Exte
 	return nil
 }
 
-// LoadIndicatorSummary loads the indicator summary file, from DuckDB, or from Supabase
+// LoadIndicatorSummary loads the indicator summary file, from DuckDB, MongoDB, or Supabase
 func (s *StockIndicatorService) LoadIndicatorSummary() (*IndicatorSummaryFile, error) {
 	summaryPath := filepath.Join("data", "indicators_summary.json")
 
@@ -614,26 +614,24 @@ func (s *StockIndicatorService) LoadIndicatorSummary() (*IndicatorSummaryFile, e
 		}
 	}
 
-	// Fallback to Supabase if both local and DuckDB are empty
-	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
-		log.Println("Loading indicators from Supabase (local storage empty)...")
-		indicators, err := GlobalStorageService.LoadAllIndicators()
+	// Fallback to MongoDB Atlas (persists across deploys)
+	if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
+		log.Println("Loading indicators from MongoDB Atlas...")
+		indicators, updatedAt, err := GlobalMongoClient.LoadIndicatorSummary()
 		if err == nil && len(indicators) > 0 {
-			count, updatedAt, _ := GlobalStorageService.GetIndicatorsCount()
 			summary := &IndicatorSummaryFile{
-				UpdatedAt: updatedAt,
-				Count:     count,
+				UpdatedAt: updatedAt.Format(time.RFC3339),
+				Count:     len(indicators),
 				Stocks:    indicators,
 			}
 			// Cache to local file and DuckDB for faster future reads
 			if cacheData, err := json.MarshalIndent(summary, "", "  "); err == nil {
 				os.WriteFile(summaryPath, cacheData, 0644)
-				log.Printf("Cached %d indicators to local file", len(indicators))
+				log.Printf("Cached %d indicators from MongoDB to local file", len(indicators))
 			}
-			// Also save to DuckDB
 			if GlobalDuckDB != nil {
 				if err := GlobalDuckDB.SaveAllIndicators(indicators); err == nil {
-					log.Printf("Cached %d indicators to DuckDB", len(indicators))
+					log.Printf("Cached %d indicators from MongoDB to DuckDB", len(indicators))
 				}
 			}
 			return summary, nil
@@ -668,12 +666,12 @@ func (s *StockIndicatorService) CalculateAndSaveAllIndicators() error {
 		}
 	}
 
-	// Save to Supabase for cloud persistence (survives deploy/restart)
-	if GlobalStorageService != nil && GlobalStorageService.IsConfigured() {
-		if err := GlobalStorageService.SaveAllIndicators(indicators); err != nil {
-			log.Printf("Warning: failed to save indicators to Supabase: %v", err)
+	// Save to MongoDB Atlas for persistence across deploys
+	if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
+		if err := GlobalMongoClient.SaveIndicatorSummary(indicators); err != nil {
+			log.Printf("Warning: failed to save indicators to MongoDB: %v", err)
 		} else {
-			log.Printf("Saved %d indicators to Supabase", len(indicators))
+			log.Printf("Saved %d indicators to MongoDB Atlas", len(indicators))
 		}
 	}
 

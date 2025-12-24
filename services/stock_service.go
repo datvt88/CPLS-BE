@@ -95,15 +95,15 @@ func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("VNDirect API error: %v, trying local file...", err)
-		return LoadStocksFromFile()
+		log.Printf("VNDirect API error: %v, trying fallback storage...", err)
+		return LoadStocksWithFallback()
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("VNDirect API error (status %d): %s, trying local file...", resp.StatusCode, string(body))
-		return LoadStocksFromFile()
+		log.Printf("VNDirect API error (status %d): %s, trying fallback storage...", resp.StatusCode, string(body))
+		return LoadStocksWithFallback()
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -118,8 +118,16 @@ func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 
 	log.Printf("VNDirect API fetched %d stocks", len(response.Data))
 
-	// Save to local file for future offline use
-	go SaveStocksToFile(response.Data)
+	// Save to local file and MongoDB for future offline use
+	go func() {
+		SaveStocksToFile(response.Data)
+		// Also save to MongoDB Atlas for persistence across deploys
+		if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
+			if err := GlobalMongoClient.SaveStockList(response.Data); err != nil {
+				log.Printf("Warning: failed to save stock list to MongoDB: %v", err)
+			}
+		}
+	}()
 
 	return response.Data, nil
 }
@@ -138,6 +146,31 @@ func LoadStocksFromFile() ([]VNDirectStock, error) {
 
 	log.Printf("Loaded %d stocks from file: %s", len(stocks), StockListFile)
 	return stocks, nil
+}
+
+// LoadStocksWithFallback loads stocks from local file first, then MongoDB Atlas as fallback
+func LoadStocksWithFallback() ([]VNDirectStock, error) {
+	// Try local file first (fastest)
+	stocks, err := LoadStocksFromFile()
+	if err == nil && len(stocks) > 0 {
+		return stocks, nil
+	}
+
+	// Fallback to MongoDB Atlas (persists across deploys)
+	if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
+		log.Println("Local stock list not found, loading from MongoDB Atlas...")
+		stocks, err := GlobalMongoClient.LoadStockList()
+		if err == nil && len(stocks) > 0 {
+			// Cache to local file for faster future reads
+			go SaveStocksToFile(stocks)
+			return stocks, nil
+		}
+		if err != nil {
+			log.Printf("MongoDB stock list load failed: %v", err)
+		}
+	}
+
+	return nil, fmt.Errorf("stock list not found in local storage or MongoDB Atlas")
 }
 
 // SaveStocksToFile saves stocks to local JSON file
