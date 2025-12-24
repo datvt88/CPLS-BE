@@ -324,6 +324,125 @@
                         </div>
                     </div>
 
+                    <!-- Technical Indicators Filter Widget -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="bi bi-funnel"></i> Technical Indicators Filter</h5>
+                            <button class="btn btn-primary btn-sm" onclick="applyFilter()">
+                                <i class="bi bi-search"></i> Apply Filter
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <!-- RS Filters -->
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">RS Avg Min</label>
+                                    <input type="number" class="form-control form-control-sm" id="rs_avg_min" value="40" step="1" min="0" max="100">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">RS 3D Min</label>
+                                    <input type="number" class="form-control form-control-sm" id="rs_3d_min" value="0" step="1" min="0" max="100">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">RS 1M Min</label>
+                                    <input type="number" class="form-control form-control-sm" id="rs_1m_min" value="0" step="1" min="0" max="100">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">RS 3M Min</label>
+                                    <input type="number" class="form-control form-control-sm" id="rs_3m_min" value="0" step="1" min="0" max="100">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">RS 1Y Min</label>
+                                    <input type="number" class="form-control form-control-sm" id="rs_1y_min" value="80" step="1" min="0" max="100">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">MACD His Min</label>
+                                    <input type="number" class="form-control form-control-sm" id="macd_hist_min" value="-0.1" step="0.01">
+                                </div>
+
+                                <!-- Volume/Value Filters -->
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">Avg Vol Min</label>
+                                    <input type="number" class="form-control form-control-sm" id="avg_vol_min" value="600000" step="10000">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">Avg Trading Vol (tỷ)</label>
+                                    <input type="number" class="form-control form-control-sm" id="avg_trading_val_min" value="0" step="0.1" placeholder="tỷ VND">
+                                    <small class="text-muted">= Vol × Price (5 phiên)</small>
+                                </div>
+
+                                <!-- MA Conditions -->
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">MA Conditions</label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="ma10_above_ma30">
+                                        <label class="form-check-label" for="ma10_above_ma30">MA10 >= MA30</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">&nbsp;</label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="ma50_above_ma200">
+                                        <label class="form-check-label" for="ma50_above_ma200">MA50 >= MA200</label>
+                                    </div>
+                                </div>
+
+                                <!-- Sort & Limit -->
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">Sort By</label>
+                                    <select class="form-select form-select-sm" id="sort_by">
+                                        <option value="rs_avg">RS Avg</option>
+                                        <option value="rs_1y">RS 1Y</option>
+                                        <option value="rs_3m">RS 3M</option>
+                                        <option value="rs_1m">RS 1M</option>
+                                        <option value="rs_3d">RS 3D</option>
+                                        <option value="macd_hist">MACD Hist</option>
+                                        <option value="avg_vol">Avg Volume</option>
+                                        <option value="avg_trading_val">Avg Trading Vol</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">Limit</label>
+                                    <input type="number" class="form-control form-control-sm" id="limit" value="50" min="1" max="200">
+                                </div>
+                            </div>
+
+                            <!-- Results -->
+                            <div class="mt-4">
+                                <div id="filter-loading" class="text-center d-none">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                                <div id="filter-result" class="d-none">
+                                    <h6><i class="bi bi-list-ul"></i> Results: <span id="result-count" class="badge bg-primary">0</span> stocks</h6>
+                                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                        <table class="table table-sm table-hover table-striped">
+                                            <thead class="table-dark sticky-top">
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>Code</th>
+                                                    <th>Price</th>
+                                                    <th>RS Avg</th>
+                                                    <th>RS 3D</th>
+                                                    <th>RS 1M</th>
+                                                    <th>RS 3M</th>
+                                                    <th>RS 1Y</th>
+                                                    <th>MACD His</th>
+                                                    <th>Avg Vol</th>
+                                                    <th>Avg Trading Vol</th>
+                                                    <th>MA10>=MA30</th>
+                                                    <th>MA50>=MA200</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="result-table"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Stocks Table -->
                     <div class="card">
                         <div class="card-header bg-primary text-white">
@@ -1168,6 +1287,88 @@
                     alert('Failed: ' + (xhr.responseJSON?.error || 'Unknown error'));
                 }
             });
+        }
+
+        // ==================== Filter Widget Functions ====================
+
+        function formatNumber(num) {
+            if (num >= 1000000000) return (num / 1000000000).toFixed(2) + ' tỷ';
+            if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(2) + 'K';
+            return num.toFixed(2);
+        }
+
+        function formatBillions(num) {
+            return (num / 1000000000).toFixed(2) + ' tỷ';
+        }
+
+        function applyFilter() {
+            const params = new URLSearchParams();
+            params.append('rs_avg_min', document.getElementById('rs_avg_min').value || 0);
+            params.append('rs_3d_min', document.getElementById('rs_3d_min').value || 0);
+            params.append('rs_1m_min', document.getElementById('rs_1m_min').value || 0);
+            params.append('rs_3m_min', document.getElementById('rs_3m_min').value || 0);
+            params.append('rs_1y_min', document.getElementById('rs_1y_min').value || 0);
+            params.append('macd_hist_min', document.getElementById('macd_hist_min').value || -999);
+            params.append('avg_vol_min', document.getElementById('avg_vol_min').value || 0);
+
+            // Convert tỷ (billions) to raw value for API
+            const avgTradingValBillions = parseFloat(document.getElementById('avg_trading_val_min').value) || 0;
+            params.append('avg_trading_val_min', avgTradingValBillions * 1000000000);
+
+            params.append('sort_by', document.getElementById('sort_by').value);
+            params.append('limit', document.getElementById('limit').value || 50);
+
+            if (document.getElementById('ma10_above_ma30').checked) {
+                params.append('ma10_above_ma30', 'true');
+            }
+            if (document.getElementById('ma50_above_ma200').checked) {
+                params.append('ma50_above_ma200', 'true');
+            }
+
+            document.getElementById('filter-loading').classList.remove('d-none');
+            document.getElementById('filter-result').classList.add('d-none');
+
+            fetch('/admin/api/indicators/top-rs?' + params.toString())
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('filter-loading').classList.add('d-none');
+                    document.getElementById('filter-result').classList.remove('d-none');
+                    document.getElementById('result-count').textContent = data.count;
+
+                    const tbody = document.getElementById('result-table');
+                    tbody.innerHTML = '';
+
+                    if (data.stocks && data.stocks.length > 0) {
+                        data.stocks.forEach((stock, index) => {
+                            const ind = stock.indicators;
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${index + 1}</td>
+                                <td><strong class="stock-code">${stock.code}</strong></td>
+                                <td>${ind.current_price ? ind.current_price.toLocaleString() : '-'}</td>
+                                <td><span class="badge bg-primary">${ind.rs_avg || 0}</span></td>
+                                <td>${ind.rs_3d_rank || 0}</td>
+                                <td>${ind.rs_1m_rank || 0}</td>
+                                <td>${ind.rs_3m_rank || 0}</td>
+                                <td>${ind.rs_1y_rank || 0}</td>
+                                <td class="${ind.macd_hist >= 0 ? 'text-success' : 'text-danger'}">${ind.macd_hist ? ind.macd_hist.toFixed(2) : '-'}</td>
+                                <td>${ind.avg_vol ? formatNumber(ind.avg_vol) : '-'}</td>
+                                <td>${ind.avg_trading_val ? formatBillions(ind.avg_trading_val) : '-'}</td>
+                                <td>${ind.ma10_above_ma30 ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>'}</td>
+                                <td>${ind.ma50_above_ma200 ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>'}</td>
+                            `;
+                            tbody.appendChild(row);
+                        });
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="13" class="text-center text-muted">No stocks match the filter criteria</td></tr>';
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('filter-loading').classList.add('d-none');
+                    document.getElementById('filter-result').classList.remove('d-none');
+                    document.getElementById('result-table').innerHTML = '<tr><td colspan="13" class="text-center text-danger">Error loading data: ' + error.message + '</td></tr>';
+                });
         }
 
         // Show Top RS Stocks modal
