@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,6 +19,7 @@ const (
 	StockPriceDir       = "data/stocks"
 	PriceSyncConfigFile = "data/price_sync_config.json"
 	DefaultPriceSize    = 270 // ~1 year of trading days
+	DefaultWorkerCount  = 10  // Concurrent workers for fetching
 )
 
 // VNDirectPriceResponse represents the API response
@@ -64,56 +66,75 @@ type StockPriceFile struct {
 	LastUpdated string           `json:"last_updated"`
 	DataCount   int              `json:"data_count"`
 	Prices      []StockPriceData `json:"prices"`
-	// Technical indicators (to be calculated)
-	Indicators *StockIndicators `json:"indicators,omitempty"`
+	Indicators  *StockIndicators `json:"indicators,omitempty"`
 }
 
 // StockIndicators holds calculated technical indicators
 type StockIndicators struct {
-	RS3D     float64 `json:"rs_3d"`     // Relative Strength 3 days
-	RS1M     float64 `json:"rs_1m"`     // Relative Strength 1 month
-	RS3M     float64 `json:"rs_3m"`     // Relative Strength 3 months
-	RS1Y     float64 `json:"rs_1y"`     // Relative Strength 1 year
-	RSAvg    float64 `json:"rs_avg"`    // Average of all RS
-	MACDHist float64 `json:"macd_hist"` // MACD Histogram
-	AvgVol   float64 `json:"avg_vol"`   // Average Volume (20 days)
-	RSI      float64 `json:"rsi"`       // RSI (14 days)
-	UpdatedAt string `json:"updated_at"`
+	RS3D      float64 `json:"rs_3d"`
+	RS1M      float64 `json:"rs_1m"`
+	RS3M      float64 `json:"rs_3m"`
+	RS1Y      float64 `json:"rs_1y"`
+	RSAvg     float64 `json:"rs_avg"`
+	MACDHist  float64 `json:"macd_hist"`
+	AvgVol    float64 `json:"avg_vol"`
+	RSI       float64 `json:"rsi"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 // PriceSyncConfig holds price sync configuration
 type PriceSyncConfig struct {
-	DelayMS        int    `json:"delay_ms"`         // Delay between requests in milliseconds
-	BatchSize      int    `json:"batch_size"`       // Number of stocks per batch
-	BatchPauseMS   int    `json:"batch_pause_ms"`   // Pause between batches
-	PriceSize      int    `json:"price_size"`       // Number of price records to fetch
-	LastFullSync   string `json:"last_full_sync"`   // Last full sync timestamp
-	CurrentStock   string `json:"current_stock"`    // Current stock being synced (for resume)
-	SyncInProgress bool   `json:"sync_in_progress"` // Whether sync is in progress
+	DelayMS        int    `json:"delay_ms"`
+	BatchSize      int    `json:"batch_size"`
+	BatchPauseMS   int    `json:"batch_pause_ms"`
+	PriceSize      int    `json:"price_size"`
+	WorkerCount    int    `json:"worker_count"`
+	LastFullSync   string `json:"last_full_sync"`
+	CurrentStock   string `json:"current_stock"`
+	SyncInProgress bool   `json:"sync_in_progress"`
 }
 
 // PriceSyncProgress represents sync progress
 type PriceSyncProgress struct {
-	TotalStocks   int      `json:"total_stocks"`
-	ProcessedStocks int    `json:"processed_stocks"`
-	SuccessCount  int      `json:"success_count"`
-	FailedCount   int      `json:"failed_count"`
-	FailedStocks  []string `json:"failed_stocks"`
-	CurrentStock  string   `json:"current_stock"`
-	StartTime     string   `json:"start_time"`
-	ElapsedTime   string   `json:"elapsed_time"`
-	EstimatedTime string   `json:"estimated_time"`
-	Status        string   `json:"status"` // "running", "completed", "stopped", "error"
+	TotalStocks     int      `json:"total_stocks"`
+	ProcessedStocks int      `json:"processed_stocks"`
+	SuccessCount    int      `json:"success_count"`
+	FailedCount     int      `json:"failed_count"`
+	FailedStocks    []string `json:"failed_stocks"`
+	CurrentStock    string   `json:"current_stock"`
+	StartTime       string   `json:"start_time"`
+	ElapsedTime     string   `json:"elapsed_time"`
+	EstimatedTime   string   `json:"estimated_time"`
+	Status          string   `json:"status"`
+	WorkerCount     int      `json:"worker_count"`
+}
+
+// fetchJob represents a job for the worker pool
+type fetchJob struct {
+	code string
+	size int
+}
+
+// fetchResult represents the result of a fetch job
+type fetchResult struct {
+	code    string
+	prices  []StockPriceData
+	err     error
 }
 
 // StockPriceService handles stock price fetching and storage
 type StockPriceService struct {
-	config      PriceSyncConfig
-	progress    PriceSyncProgress
-	mu          sync.RWMutex
-	stopChan    chan struct{}
-	isRunning   bool
-	httpClient  *http.Client
+	config     PriceSyncConfig
+	progress   PriceSyncProgress
+	mu         sync.RWMutex
+	stopChan   chan struct{}
+	isRunning  bool
+	httpClient *http.Client
+
+	// Atomic counters for concurrent updates
+	successCount int64
+	failedCount  int64
+	processedCount int64
 }
 
 // Global price service instance
@@ -122,27 +143,38 @@ var GlobalPriceService *StockPriceService
 // InitPriceService initializes the price service
 func InitPriceService() error {
 	GlobalPriceService = &StockPriceService{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		stopChan:   make(chan struct{}),
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 20,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
+		stopChan: make(chan struct{}),
 	}
 
-	// Create price directory
 	if err := os.MkdirAll(StockPriceDir, 0755); err != nil {
 		return fmt.Errorf("failed to create price directory: %w", err)
 	}
 
-	// Load config
 	if err := GlobalPriceService.LoadConfig(); err != nil {
 		log.Printf("No price sync config found, using defaults: %v", err)
 		GlobalPriceService.config = PriceSyncConfig{
-			DelayMS:      500,  // 500ms between requests
-			BatchSize:    50,   // 50 stocks per batch
-			BatchPauseMS: 5000, // 5 second pause between batches
-			PriceSize:    270,  // ~1 year
+			DelayMS:      100,                // Reduced delay for concurrent
+			BatchSize:    50,
+			BatchPauseMS: 2000,               // Reduced pause
+			PriceSize:    DefaultPriceSize,
+			WorkerCount:  DefaultWorkerCount,
 		}
 	}
 
-	log.Println("Stock Price Service initialized")
+	// Ensure worker count is set
+	if GlobalPriceService.config.WorkerCount == 0 {
+		GlobalPriceService.config.WorkerCount = DefaultWorkerCount
+	}
+
+	log.Printf("Stock Price Service initialized (workers: %d)", GlobalPriceService.config.WorkerCount)
 	return nil
 }
 
@@ -189,11 +221,32 @@ func (s *StockPriceService) UpdateConfig(delayMS, batchSize, batchPauseMS, price
 	return s.SaveConfig()
 }
 
+// SetWorkerCount sets the number of concurrent workers
+func (s *StockPriceService) SetWorkerCount(count int) {
+	if count < 1 {
+		count = 1
+	}
+	if count > 20 {
+		count = 20
+	}
+	s.mu.Lock()
+	s.config.WorkerCount = count
+	s.mu.Unlock()
+	s.SaveConfig()
+}
+
 // GetProgress returns current sync progress
 func (s *StockPriceService) GetProgress() PriceSyncProgress {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.progress
+	progress := s.progress
+	s.mu.RUnlock()
+
+	// Update with atomic counters
+	progress.SuccessCount = int(atomic.LoadInt64(&s.successCount))
+	progress.FailedCount = int(atomic.LoadInt64(&s.failedCount))
+	progress.ProcessedStocks = int(atomic.LoadInt64(&s.processedCount))
+
+	return progress
 }
 
 // IsRunning returns whether sync is running
@@ -212,7 +265,7 @@ func (s *StockPriceService) FetchStockPrice(code string, size int) (*VNDirectPri
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	req.Header.Set("Referer", "https://www.vndirect.com.vn/")
@@ -241,7 +294,7 @@ func (s *StockPriceService) FetchStockPrice(code string, size int) (*VNDirectPri
 	return &priceResp, nil
 }
 
-// SaveStockPrice saves price data to file and optionally to Supabase
+// SaveStockPrice saves price data to file and DuckDB
 func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData) error {
 	priceFile := StockPriceFile{
 		Code:        code,
@@ -250,7 +303,6 @@ func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData)
 		Prices:      prices,
 	}
 
-	// Save to local file
 	data, err := json.MarshalIndent(priceFile, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal price data: %w", err)
@@ -261,7 +313,6 @@ func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData)
 		return fmt.Errorf("failed to write price file: %w", err)
 	}
 
-	// Also save to local DuckDB database
 	if GlobalDuckDB != nil {
 		if err := GlobalDuckDB.SavePriceHistory(code, prices); err != nil {
 			log.Printf("Warning: failed to save %s prices to DuckDB: %v", code, err)
@@ -275,7 +326,6 @@ func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData)
 func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error) {
 	filePath := filepath.Join(StockPriceDir, fmt.Sprintf("%s.json", code))
 
-	// Try local JSON file first (fastest)
 	data, err := os.ReadFile(filePath)
 	if err == nil {
 		var priceFile StockPriceFile
@@ -284,7 +334,6 @@ func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error)
 		}
 	}
 
-	// Fallback to DuckDB if local file not found
 	if GlobalDuckDB != nil {
 		prices, err := GlobalDuckDB.LoadPriceHistory(code, 270)
 		if err == nil && len(prices) > 0 {
@@ -294,7 +343,6 @@ func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error)
 				DataCount:   len(prices),
 				Prices:      prices,
 			}
-			// Cache to local JSON file for faster future reads
 			if cacheData, err := json.MarshalIndent(priceFile, "", "  "); err == nil {
 				os.WriteFile(filePath, cacheData, 0644)
 			}
@@ -305,7 +353,7 @@ func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error)
 	return nil, fmt.Errorf("price data not found for %s", code)
 }
 
-// StartFullSync starts syncing prices for all stocks
+// StartFullSync starts syncing prices for all stocks using worker pool
 func (s *StockPriceService) StartFullSync() error {
 	s.mu.Lock()
 	if s.isRunning {
@@ -316,7 +364,7 @@ func (s *StockPriceService) StartFullSync() error {
 	s.stopChan = make(chan struct{})
 	s.mu.Unlock()
 
-	go s.runFullSync()
+	go s.runFullSyncConcurrent()
 	return nil
 }
 
@@ -335,8 +383,62 @@ func (s *StockPriceService) StopSync() {
 	log.Println("Price sync stopped by user")
 }
 
-// runFullSync performs the actual sync
-func (s *StockPriceService) runFullSync() {
+// worker processes fetch jobs from the job channel
+func (s *StockPriceService) worker(id int, jobs <-chan fetchJob, results chan<- fetchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for job := range jobs {
+		// Check if stopped
+		select {
+		case <-s.stopChan:
+			return
+		default:
+		}
+
+		// Small delay to avoid rate limiting
+		time.Sleep(time.Duration(s.config.DelayMS) * time.Millisecond)
+
+		priceResp, err := s.FetchStockPrice(job.code, job.size)
+		if err != nil {
+			results <- fetchResult{code: job.code, err: err}
+			continue
+		}
+
+		if len(priceResp.Data) > 0 {
+			results <- fetchResult{code: job.code, prices: priceResp.Data}
+		} else {
+			results <- fetchResult{code: job.code, err: fmt.Errorf("no data")}
+		}
+	}
+}
+
+// resultProcessor processes results and saves them
+func (s *StockPriceService) resultProcessor(results <-chan fetchResult, failedStocks *[]string, failedMu *sync.Mutex, done chan<- bool) {
+	for result := range results {
+		atomic.AddInt64(&s.processedCount, 1)
+
+		if result.err != nil {
+			atomic.AddInt64(&s.failedCount, 1)
+			failedMu.Lock()
+			*failedStocks = append(*failedStocks, result.code)
+			failedMu.Unlock()
+			continue
+		}
+
+		if err := s.SaveStockPrice(result.code, result.prices); err != nil {
+			atomic.AddInt64(&s.failedCount, 1)
+			failedMu.Lock()
+			*failedStocks = append(*failedStocks, result.code)
+			failedMu.Unlock()
+		} else {
+			atomic.AddInt64(&s.successCount, 1)
+		}
+	}
+	done <- true
+}
+
+// runFullSyncConcurrent performs concurrent sync using worker pool
+func (s *StockPriceService) runFullSyncConcurrent() {
 	startTime := time.Now()
 
 	// Load stock list
@@ -350,6 +452,21 @@ func (s *StockPriceService) runFullSync() {
 		return
 	}
 
+	// Reset atomic counters
+	atomic.StoreInt64(&s.successCount, 0)
+	atomic.StoreInt64(&s.failedCount, 0)
+	atomic.StoreInt64(&s.processedCount, 0)
+
+	// Get worker count
+	s.mu.RLock()
+	workerCount := s.config.WorkerCount
+	priceSize := s.config.PriceSize
+	s.mu.RUnlock()
+
+	if workerCount == 0 {
+		workerCount = DefaultWorkerCount
+	}
+
 	// Initialize progress
 	s.mu.Lock()
 	s.progress = PriceSyncProgress{
@@ -360,92 +477,98 @@ func (s *StockPriceService) runFullSync() {
 		FailedStocks:    []string{},
 		StartTime:       startTime.Format(time.RFC3339),
 		Status:          "running",
+		WorkerCount:     workerCount,
 	}
 	s.config.SyncInProgress = true
 	s.mu.Unlock()
 
-	log.Printf("Starting price sync for %d stocks", len(stocks))
+	log.Printf("Starting concurrent price sync for %d stocks with %d workers", len(stocks), workerCount)
 
-	batchCount := 0
-	for i, stock := range stocks {
-		// Check if stopped
-		select {
-		case <-s.stopChan:
-			s.mu.Lock()
-			s.isRunning = false
-			s.config.SyncInProgress = false
-			s.config.CurrentStock = stock.Code
-			s.mu.Unlock()
-			s.SaveConfig()
-			return
-		default:
+	// Create channels
+	jobs := make(chan fetchJob, len(stocks))
+	results := make(chan fetchResult, len(stocks))
+	done := make(chan bool)
+
+	// Track failed stocks
+	var failedStocks []string
+	var failedMu sync.Mutex
+
+	// Start result processor
+	go s.resultProcessor(results, &failedStocks, &failedMu, done)
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go s.worker(i, jobs, results, &wg)
+	}
+
+	// Send jobs
+	go func() {
+		for _, stock := range stocks {
+			select {
+			case <-s.stopChan:
+				break
+			case jobs <- fetchJob{code: stock.Code, size: priceSize}:
+			}
 		}
+		close(jobs)
+	}()
 
-		// Update progress
-		s.mu.Lock()
-		s.progress.CurrentStock = stock.Code
-		s.progress.ProcessedStocks = i
-		elapsed := time.Since(startTime)
-		s.progress.ElapsedTime = elapsed.Round(time.Second).String()
+	// Start progress updater
+	progressDone := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-progressDone:
+				return
+			case <-ticker.C:
+				processed := int(atomic.LoadInt64(&s.processedCount))
+				elapsed := time.Since(startTime)
 
-		// Estimate remaining time
-		if i > 0 {
-			avgTime := elapsed / time.Duration(i)
-			remaining := avgTime * time.Duration(len(stocks)-i)
-			s.progress.EstimatedTime = remaining.Round(time.Second).String()
-		}
-		s.mu.Unlock()
-
-		// Fetch price
-		priceResp, err := s.FetchStockPrice(stock.Code, s.config.PriceSize)
-		if err != nil {
-			log.Printf("Failed to fetch price for %s: %v", stock.Code, err)
-			s.mu.Lock()
-			s.progress.FailedCount++
-			s.progress.FailedStocks = append(s.progress.FailedStocks, stock.Code)
-			s.mu.Unlock()
-		} else if len(priceResp.Data) > 0 {
-			// Save price data
-			if err := s.SaveStockPrice(stock.Code, priceResp.Data); err != nil {
-				log.Printf("Failed to save price for %s: %v", stock.Code, err)
 				s.mu.Lock()
-				s.progress.FailedCount++
-				s.progress.FailedStocks = append(s.progress.FailedStocks, stock.Code)
-				s.mu.Unlock()
-			} else {
-				s.mu.Lock()
-				s.progress.SuccessCount++
+				s.progress.ProcessedStocks = processed
+				s.progress.SuccessCount = int(atomic.LoadInt64(&s.successCount))
+				s.progress.FailedCount = int(atomic.LoadInt64(&s.failedCount))
+				s.progress.ElapsedTime = elapsed.Round(time.Second).String()
+
+				if processed > 0 {
+					avgTime := elapsed / time.Duration(processed)
+					remaining := avgTime * time.Duration(len(stocks)-processed)
+					s.progress.EstimatedTime = remaining.Round(time.Second).String()
+				}
 				s.mu.Unlock()
 			}
 		}
+	}()
 
-		batchCount++
+	// Wait for workers to finish
+	wg.Wait()
+	close(results)
 
-		// Delay between requests
-		time.Sleep(time.Duration(s.config.DelayMS) * time.Millisecond)
+	// Wait for result processor to finish
+	<-done
+	close(progressDone)
 
-		// Batch pause
-		if batchCount >= s.config.BatchSize {
-			log.Printf("Batch complete (%d/%d), pausing for %dms...", i+1, len(stocks), s.config.BatchPauseMS)
-			time.Sleep(time.Duration(s.config.BatchPauseMS) * time.Millisecond)
-			batchCount = 0
-		}
-	}
-
-	// Complete
+	// Final update
 	s.mu.Lock()
 	s.isRunning = false
 	s.progress.Status = "completed"
-	s.progress.ProcessedStocks = len(stocks)
+	s.progress.ProcessedStocks = int(atomic.LoadInt64(&s.processedCount))
+	s.progress.SuccessCount = int(atomic.LoadInt64(&s.successCount))
+	s.progress.FailedCount = int(atomic.LoadInt64(&s.failedCount))
 	s.progress.ElapsedTime = time.Since(startTime).Round(time.Second).String()
+	s.progress.FailedStocks = failedStocks
 	s.config.SyncInProgress = false
 	s.config.LastFullSync = time.Now().Format(time.RFC3339)
 	s.mu.Unlock()
 
 	s.SaveConfig()
 
-	log.Printf("Price sync completed: success=%d, failed=%d, time=%s",
-		s.progress.SuccessCount, s.progress.FailedCount, s.progress.ElapsedTime)
+	log.Printf("Price sync completed: success=%d, failed=%d, time=%s (workers: %d)",
+		s.progress.SuccessCount, s.progress.FailedCount, s.progress.ElapsedTime, workerCount)
 }
 
 // SyncSingleStock syncs price for a single stock
@@ -515,8 +638,9 @@ func (s *StockPriceService) GetPriceSyncStats() (map[string]interface{}, error) 
 	}
 
 	stats := map[string]interface{}{
-		"total_files": totalFiles,
-		"last_sync":   s.config.LastFullSync,
+		"total_files":  totalFiles,
+		"last_sync":    s.config.LastFullSync,
+		"worker_count": s.config.WorkerCount,
 	}
 
 	if !oldestUpdate.IsZero() {

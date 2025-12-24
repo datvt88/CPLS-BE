@@ -7,8 +7,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -367,10 +369,23 @@ func CalculateRSRanks(allIndicators map[string]*ExtendedStockIndicators) {
 	}
 }
 
-// CalculateAllIndicators calculates indicators for all stocks with price data
+// indicatorJob represents a job for indicator calculation
+type indicatorJob struct {
+	code string
+}
+
+// indicatorResult represents the result of indicator calculation
+type indicatorResult struct {
+	code       string
+	indicators *ExtendedStockIndicators
+}
+
+// CalculateAllIndicators calculates indicators for all stocks with price data (concurrent)
 func (s *StockIndicatorService) CalculateAllIndicators() (map[string]*ExtendedStockIndicators, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	startTime := time.Now()
 
 	// Read all price files
 	files, err := os.ReadDir(StockPriceDir)
@@ -378,32 +393,84 @@ func (s *StockIndicatorService) CalculateAllIndicators() (map[string]*ExtendedSt
 		return nil, fmt.Errorf("failed to read price directory: %w", err)
 	}
 
-	allIndicators := make(map[string]*ExtendedStockIndicators)
-
-	// Calculate individual indicators
+	// Collect stock codes
+	var codes []string
 	for _, file := range files {
 		if filepath.Ext(file.Name()) != ".json" {
 			continue
 		}
+		code := file.Name()[:len(file.Name())-5]
+		codes = append(codes, code)
+	}
 
-		code := file.Name()[:len(file.Name())-5] // Remove .json
+	if len(codes) == 0 {
+		return nil, fmt.Errorf("no price files found")
+	}
 
-		priceFile, err := GlobalPriceService.LoadStockPrice(code)
-		if err != nil {
-			log.Printf("Failed to load price for %s: %v", code, err)
-			continue
+	// Use worker pool for concurrent calculation
+	workerCount := runtime.NumCPU()
+	if workerCount > 8 {
+		workerCount = 8
+	}
+	if workerCount < 2 {
+		workerCount = 2
+	}
+
+	log.Printf("Calculating indicators for %d stocks with %d workers", len(codes), workerCount)
+
+	jobs := make(chan indicatorJob, len(codes))
+	results := make(chan indicatorResult, len(codes))
+
+	// Start workers
+	var wg sync.WaitGroup
+	var processedCount int64
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				priceFile, err := GlobalPriceService.LoadStockPrice(job.code)
+				if err != nil {
+					atomic.AddInt64(&processedCount, 1)
+					continue
+				}
+
+				indicators := CalculateIndicatorsForStock(priceFile)
+				atomic.AddInt64(&processedCount, 1)
+
+				if indicators != nil {
+					results <- indicatorResult{code: job.code, indicators: indicators}
+				}
+			}
+		}()
+	}
+
+	// Send jobs
+	go func() {
+		for _, code := range codes {
+			jobs <- indicatorJob{code: code}
 		}
+		close(jobs)
+	}()
 
-		indicators := CalculateIndicatorsForStock(priceFile)
-		if indicators != nil {
-			allIndicators[code] = indicators
-		}
+	// Collect results
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Build result map
+	allIndicators := make(map[string]*ExtendedStockIndicators)
+	for result := range results {
+		allIndicators[result.code] = result.indicators
 	}
 
 	// Calculate RS ranks across all stocks
 	CalculateRSRanks(allIndicators)
 
-	log.Printf("Calculated indicators for %d stocks", len(allIndicators))
+	elapsed := time.Since(startTime)
+	log.Printf("Calculated indicators for %d stocks in %v (workers: %d)", len(allIndicators), elapsed.Round(time.Millisecond), workerCount)
 
 	return allIndicators, nil
 }
