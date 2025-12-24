@@ -204,7 +204,23 @@ func restoreDataFromMongoDB() {
 		return
 	}
 
-	// Check if local price data exists
+	// 1. Restore stock list if local file is missing
+	stocks, err := services.LoadStocksFromFile()
+	if err != nil || len(stocks) == 0 {
+		log.Println("Local stock list not found, attempting restore from MongoDB Atlas...")
+		stocks, err := services.GlobalMongoClient.LoadStockList()
+		if err == nil && len(stocks) > 0 {
+			if err := services.SaveStocksToFile(stocks); err != nil {
+				log.Printf("Warning: Could not cache stock list locally: %v", err)
+			} else {
+				log.Printf("Restored %d stocks from MongoDB Atlas", len(stocks))
+			}
+		} else if err != nil {
+			log.Printf("Warning: Could not restore stock list from MongoDB: %v", err)
+		}
+	}
+
+	// 2. Restore price data if local files are missing
 	if services.GlobalPriceService != nil && !services.GlobalPriceService.HasLocalPriceData() {
 		log.Println("Local price data not found, attempting restore from MongoDB Atlas...")
 		if err := services.GlobalPriceService.RestoreFromMongoDB(); err != nil {
@@ -212,7 +228,7 @@ func restoreDataFromMongoDB() {
 		}
 	}
 
-	// Load indicators from MongoDB if not cached locally
+	// 3. Restore indicators from MongoDB if not cached locally
 	if services.GlobalIndicatorService != nil {
 		if _, err := services.GlobalIndicatorService.LoadIndicatorSummary(); err != nil {
 			log.Printf("Note: Indicators will be calculated when needed: %v", err)
