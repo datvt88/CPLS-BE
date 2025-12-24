@@ -118,6 +118,11 @@ func main() {
 		services.GlobalStockScheduler.Stop()
 	}
 
+	// Shutdown Realtime Price Service
+	if services.GlobalRealtimeService != nil {
+		services.GlobalRealtimeService.Shutdown()
+	}
+
 	// Close DuckDB connection
 	if services.GlobalDuckDB != nil {
 		if err := services.GlobalDuckDB.Close(); err != nil {
@@ -143,6 +148,13 @@ func initLocalServices() {
 		log.Println("DuckDB initialized successfully")
 	}
 
+	// Initialize Supabase Storage Service for cloud persistence
+	if err := services.InitStorageService(); err != nil {
+		log.Printf("Warning: Failed to initialize Storage Service: %v", err)
+	} else {
+		log.Println("Storage Service initialized successfully")
+	}
+
 	// Initialize Stock Scheduler
 	if err := services.InitStockScheduler(); err != nil {
 		log.Printf("Warning: Failed to initialize Stock Scheduler: %v", err)
@@ -162,6 +174,13 @@ func initLocalServices() {
 		log.Printf("Warning: Failed to initialize Indicator Service: %v", err)
 	} else {
 		log.Println("Indicator Service initialized successfully")
+	}
+
+	// Initialize Realtime Price Service (WebSocket)
+	if err := services.InitRealtimePriceService(); err != nil {
+		log.Printf("Warning: Failed to initialize Realtime Price Service: %v", err)
+	} else {
+		log.Println("Realtime Price Service initialized successfully")
 	}
 
 	log.Println("Local services initialized")
@@ -414,7 +433,18 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				indicatorAPI.POST("/filter", stockCtrl.FilterStocks)
 				indicatorAPI.GET("/:code", stockCtrl.GetStockIndicators)
 			}
+
+			// Realtime Price API
+			realtimeAPI := protected.Group("/api/realtime")
+			{
+				realtimeAPI.GET("/status", stockCtrl.GetRealtimeStatus)
+				realtimeAPI.POST("/start", stockCtrl.StartRealtimePolling)
+				realtimeAPI.POST("/stop", stockCtrl.StopRealtimePolling)
+			}
 		}
+
+		// WebSocket endpoint (outside auth middleware for direct connection)
+		adminRoutes.GET("/ws/realtime", stockCtrl.HandleRealtimeWebSocket)
 	}
 
 	// API health check for Supabase mode
