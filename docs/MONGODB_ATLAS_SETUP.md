@@ -162,7 +162,6 @@ Or in the Cloud Console:
 1. **Local File** (fastest, lost on redeploy)
 2. **DuckDB** (fast, lost on redeploy)
 3. **MongoDB Atlas** (persistent, survives redeploy)
-4. **Supabase** (legacy fallback)
 
 ## Part 4: Manual Sync Operations
 
