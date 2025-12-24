@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 
 	"go_backend_project/services"
@@ -521,14 +522,10 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 		stocks = append(stocks, stockRS{Code: code, Indicators: ind})
 	}
 
-	// Sort by RSAvg descending
-	for i := 0; i < len(stocks)-1; i++ {
-		for j := i + 1; j < len(stocks); j++ {
-			if stocks[j].Indicators.RSAvg > stocks[i].Indicators.RSAvg {
-				stocks[i], stocks[j] = stocks[j], stocks[i]
-			}
-		}
-	}
+	// Sort by RSAvg descending (using efficient sort.Slice)
+	sort.Slice(stocks, func(i, j int) bool {
+		return stocks[i].Indicators.RSAvg > stocks[j].Indicators.RSAvg
+	})
 
 	// Limit results
 	if len(stocks) > limit {
@@ -609,9 +606,7 @@ func (ctrl *StockController) GetRealtimeStatus(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"is_polling":    services.GlobalRealtimeService.IsPolling(),
-		"client_count":  services.GlobalRealtimeService.GetClientCount(),
-		"websocket_url": "/ws/realtime",
-	})
+	status := services.GlobalRealtimeService.GetStatus()
+	status["websocket_url"] = "/admin/ws/realtime"
+	c.JSON(http.StatusOK, status)
 }

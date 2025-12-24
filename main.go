@@ -118,6 +118,11 @@ func main() {
 		services.GlobalStockScheduler.Stop()
 	}
 
+	// Shutdown Realtime Price Service
+	if services.GlobalRealtimeService != nil {
+		services.GlobalRealtimeService.Shutdown()
+	}
+
 	// Close DuckDB connection
 	if services.GlobalDuckDB != nil {
 		if err := services.GlobalDuckDB.Close(); err != nil {

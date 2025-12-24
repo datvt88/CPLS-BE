@@ -6,72 +6,88 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
+// Constants for service configuration
+const (
+	MaxWebSocketClients   = 100             // Maximum concurrent WebSocket clients
+	WebSocketWriteTimeout = 10 * time.Second
+	WebSocketPongTimeout  = 60 * time.Second
+	WebSocketPingInterval = 30 * time.Second
+	DefaultPollInterval   = 5 * time.Second
+	PriceFetchBatchSize   = 20
+	PriceFetchBatchDelay  = 100 * time.Millisecond
+)
+
 // RealtimePriceData represents realtime price data
 type RealtimePriceData struct {
-	Code         string  `json:"code"`
-	Price        float64 `json:"price"`
-	Change       float64 `json:"change"`
+	Code          string  `json:"code"`
+	Price         float64 `json:"price"`
+	Change        float64 `json:"change"`
 	ChangePercent float64 `json:"change_percent"`
-	Volume       float64 `json:"volume"`
-	High         float64 `json:"high"`
-	Low          float64 `json:"low"`
-	Open         float64 `json:"open"`
-	RefPrice     float64 `json:"ref_price"`
-	Timestamp    string  `json:"timestamp"`
+	Volume        float64 `json:"volume"`
+	High          float64 `json:"high"`
+	Low           float64 `json:"low"`
+	Open          float64 `json:"open"`
+	RefPrice      float64 `json:"ref_price"`
+	Timestamp     string  `json:"timestamp"`
 }
 
 // RealtimeIndicators represents calculated realtime indicators
 type RealtimeIndicators struct {
-	Code         string  `json:"code"`
-	Price        float64 `json:"price"`
-	Change       float64 `json:"change"`
+	Code          string  `json:"code"`
+	Price         float64 `json:"price"`
+	Change        float64 `json:"change"`
 	ChangePercent float64 `json:"change_percent"`
-	Volume       float64 `json:"volume"`
-	AvgVol5D     float64 `json:"avg_vol_5d"`
-	VolRatio     float64 `json:"vol_ratio"`
-	RS1YRank     float64 `json:"rs_1y_rank"`
-	RSAvg        float64 `json:"rs_avg"`
-	MACDHist     float64 `json:"macd_hist"`
-	RSI          float64 `json:"rsi"`
-	InTopRS      bool    `json:"in_top_rs"` // Meets top RS criteria
-	Timestamp    string  `json:"timestamp"`
+	Volume        float64 `json:"volume"`
+	AvgVol5D      float64 `json:"avg_vol_5d"`
+	VolRatio      float64 `json:"vol_ratio"`
+	RS1YRank      float64 `json:"rs_1y_rank"`
+	RSAvg         float64 `json:"rs_avg"`
+	MACDHist      float64 `json:"macd_hist"`
+	RSI           float64 `json:"rsi"`
+	InTopRS       bool    `json:"in_top_rs"`
+	Timestamp     string  `json:"timestamp"`
 }
 
 // WebSocketMessage represents a message to broadcast
 type WebSocketMessage struct {
-	Type    string      `json:"type"` // "price", "indicators", "top_rs", "error"
-	Data    interface{} `json:"data"`
-	Time    string      `json:"time"`
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+	Time string      `json:"time"`
 }
 
 // Client represents a WebSocket client
 type Client struct {
-	conn      *websocket.Conn
-	send      chan []byte
-	subscribed map[string]bool // Subscribed stock codes
-	mu        sync.RWMutex
+	conn       *websocket.Conn
+	send       chan []byte
+	subscribed map[string]bool
+	mu         sync.RWMutex
 }
 
 // RealtimePriceService handles realtime price streaming
 type RealtimePriceService struct {
-	clients       map[*Client]bool
-	broadcast     chan WebSocketMessage
-	register      chan *Client
-	unregister    chan *Client
-	mu            sync.RWMutex
-	upgrader      websocket.Upgrader
-	isRunning     bool
-	stopChan      chan struct{}
+	clients   map[*Client]bool
+	broadcast chan WebSocketMessage
+	register  chan *Client
+	unregister chan *Client
+	shutdown  chan struct{}
+	mu        sync.RWMutex
+	upgrader  websocket.Upgrader
+	isRunning bool
+	stopChan  chan struct{}
 
-	// In-memory price cache for quick calculations
-	priceCache    map[string]*RealtimePriceData
-	priceMu       sync.RWMutex
+	// In-memory caches
+	priceCache     map[string]*RealtimePriceData
+	priceMu        sync.RWMutex
+	indicatorCache *IndicatorSummaryFile
+	indicatorMu    sync.RWMutex
+	lastCacheTime  time.Time
 
 	// Polling config
 	pollingInterval time.Duration
@@ -88,15 +104,16 @@ func InitRealtimePriceService() error {
 		broadcast:  make(chan WebSocketMessage, 256),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
+		shutdown:   make(chan struct{}),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for now
+				return true
 			},
 		},
 		priceCache:      make(map[string]*RealtimePriceData),
-		pollingInterval: 5 * time.Second, // Poll every 5 seconds
+		pollingInterval: DefaultPollInterval,
 		stopChan:        make(chan struct{}),
 	}
 
@@ -107,15 +124,45 @@ func InitRealtimePriceService() error {
 	return nil
 }
 
+// Shutdown gracefully shuts down the service
+func (s *RealtimePriceService) Shutdown() {
+	s.StopPolling()
+	close(s.shutdown)
+
+	// Close all client connections
+	s.mu.Lock()
+	for client := range s.clients {
+		close(client.send)
+		client.conn.Close()
+	}
+	s.clients = make(map[*Client]bool)
+	s.mu.Unlock()
+
+	log.Println("Realtime Price Service shutdown complete")
+}
+
 // run starts the WebSocket hub
 func (s *RealtimePriceService) run() {
 	for {
 		select {
+		case <-s.shutdown:
+			return
+
 		case client := <-s.register:
 			s.mu.Lock()
+			// Check client limit
+			if len(s.clients) >= MaxWebSocketClients {
+				s.mu.Unlock()
+				client.conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "Server at capacity"))
+				client.conn.Close()
+				log.Printf("WebSocket client rejected: max clients reached (%d)", MaxWebSocketClients)
+				continue
+			}
 			s.clients[client] = true
+			clientCount := len(s.clients)
 			s.mu.Unlock()
-			log.Printf("WebSocket client connected. Total clients: %d", len(s.clients))
+			log.Printf("WebSocket client connected. Total clients: %d", clientCount)
 
 		case client := <-s.unregister:
 			s.mu.Lock()
@@ -123,31 +170,49 @@ func (s *RealtimePriceService) run() {
 				delete(s.clients, client)
 				close(client.send)
 			}
+			clientCount := len(s.clients)
 			s.mu.Unlock()
-			log.Printf("WebSocket client disconnected. Total clients: %d", len(s.clients))
+			log.Printf("WebSocket client disconnected. Total clients: %d", clientCount)
 
 		case message := <-s.broadcast:
 			data, err := json.Marshal(message)
 			if err != nil {
+				log.Printf("Error marshaling broadcast message: %v", err)
 				continue
 			}
 
-			s.mu.RLock()
+			s.mu.Lock()
+			deadClients := make([]*Client, 0)
 			for client := range s.clients {
 				select {
 				case client.send <- data:
 				default:
-					close(client.send)
-					delete(s.clients, client)
+					// Client buffer full, mark for removal
+					deadClients = append(deadClients, client)
 				}
 			}
-			s.mu.RUnlock()
+			// Remove dead clients
+			for _, client := range deadClients {
+				delete(s.clients, client)
+				close(client.send)
+			}
+			s.mu.Unlock()
 		}
 	}
 }
 
 // HandleWebSocket handles WebSocket connections
 func (s *RealtimePriceService) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Check if at capacity before upgrading
+	s.mu.RLock()
+	atCapacity := len(s.clients) >= MaxWebSocketClients
+	s.mu.RUnlock()
+
+	if atCapacity {
+		http.Error(w, "Server at capacity", http.StatusServiceUnavailable)
+		return
+	}
+
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -162,14 +227,13 @@ func (s *RealtimePriceService) HandleWebSocket(w http.ResponseWriter, r *http.Re
 
 	s.register <- client
 
-	// Start goroutines for reading and writing
 	go client.writePump()
 	go client.readPump(s)
 }
 
 // writePump writes messages to the WebSocket connection
 func (c *Client) writePump() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(WebSocketPingInterval)
 	defer func() {
 		ticker.Stop()
 		c.conn.Close()
@@ -178,7 +242,7 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			c.conn.SetWriteDeadline(time.Now().Add(WebSocketWriteTimeout))
 			if !ok {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -189,7 +253,7 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			c.conn.SetWriteDeadline(time.Now().Add(WebSocketWriteTimeout))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -205,9 +269,9 @@ func (c *Client) readPump(s *RealtimePriceService) {
 	}()
 
 	c.conn.SetReadLimit(512)
-	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.conn.SetReadDeadline(time.Now().Add(WebSocketPongTimeout))
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		c.conn.SetReadDeadline(time.Now().Add(WebSocketPongTimeout))
 		return nil
 	})
 
@@ -215,34 +279,34 @@ func (c *Client) readPump(s *RealtimePriceService) {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket error: %v", err)
+				log.Printf("WebSocket read error: %v", err)
 			}
 			break
 		}
 
-		// Handle client commands (subscribe/unsubscribe)
 		var cmd struct {
-			Action string   `json:"action"` // "subscribe", "unsubscribe", "get_top_rs"
+			Action string   `json:"action"`
 			Codes  []string `json:"codes"`
 		}
-		if err := json.Unmarshal(message, &cmd); err == nil {
-			switch cmd.Action {
-			case "subscribe":
-				c.mu.Lock()
-				for _, code := range cmd.Codes {
-					c.subscribed[code] = true
-				}
-				c.mu.Unlock()
-			case "unsubscribe":
-				c.mu.Lock()
-				for _, code := range cmd.Codes {
-					delete(c.subscribed, code)
-				}
-				c.mu.Unlock()
-			case "get_top_rs":
-				// Send current top RS stocks
-				s.sendTopRSToClient(c)
+		if err := json.Unmarshal(message, &cmd); err != nil {
+			continue
+		}
+
+		switch cmd.Action {
+		case "subscribe":
+			c.mu.Lock()
+			for _, code := range cmd.Codes {
+				c.subscribed[code] = true
 			}
+			c.mu.Unlock()
+		case "unsubscribe":
+			c.mu.Lock()
+			for _, code := range cmd.Codes {
+				delete(c.subscribed, code)
+			}
+			c.mu.Unlock()
+		case "get_top_rs":
+			s.sendTopRSToClient(c)
 		}
 	}
 }
@@ -260,7 +324,12 @@ func (s *RealtimePriceService) StartPolling(codes []string) error {
 	s.mu.Unlock()
 
 	go s.pollPrices()
-	log.Printf("Started price polling for %d stocks", len(codes))
+
+	codeCount := len(codes)
+	if codeCount == 0 {
+		codeCount = len(s.loadTopRSCodes())
+	}
+	log.Printf("Started price polling for %d stocks (interval: %v)", codeCount, s.pollingInterval)
 	return nil
 }
 
@@ -296,6 +365,37 @@ func (s *RealtimePriceService) pollPrices() {
 	}
 }
 
+// getIndicatorCache returns cached indicators, refreshing if needed
+func (s *RealtimePriceService) getIndicatorCache() *IndicatorSummaryFile {
+	s.indicatorMu.RLock()
+	// Cache for 30 seconds
+	if s.indicatorCache != nil && time.Since(s.lastCacheTime) < 30*time.Second {
+		cache := s.indicatorCache
+		s.indicatorMu.RUnlock()
+		return cache
+	}
+	s.indicatorMu.RUnlock()
+
+	// Refresh cache
+	s.indicatorMu.Lock()
+	defer s.indicatorMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if s.indicatorCache != nil && time.Since(s.lastCacheTime) < 30*time.Second {
+		return s.indicatorCache
+	}
+
+	if GlobalIndicatorService != nil {
+		summary, err := GlobalIndicatorService.LoadIndicatorSummary()
+		if err == nil {
+			s.indicatorCache = summary
+			s.lastCacheTime = time.Now()
+			return summary
+		}
+	}
+	return nil
+}
+
 // fetchAndBroadcast fetches prices and broadcasts them
 func (s *RealtimePriceService) fetchAndBroadcast() {
 	s.mu.RLock()
@@ -303,17 +403,21 @@ func (s *RealtimePriceService) fetchAndBroadcast() {
 	s.mu.RUnlock()
 
 	if len(codes) == 0 {
-		// Load top RS stocks if no codes specified
 		codes = s.loadTopRSCodes()
 	}
 
-	// Fetch prices in batches
-	batchSize := 20
-	allPrices := make([]RealtimePriceData, 0)
-	allIndicators := make([]RealtimeIndicators, 0)
+	if len(codes) == 0 {
+		return
+	}
 
-	for i := 0; i < len(codes); i += batchSize {
-		end := i + batchSize
+	// Pre-load indicator cache once
+	indicatorSummary := s.getIndicatorCache()
+
+	allPrices := make([]RealtimePriceData, 0, len(codes))
+	allIndicators := make([]RealtimeIndicators, 0, len(codes))
+
+	for i := 0; i < len(codes); i += PriceFetchBatchSize {
+		end := i + PriceFetchBatchSize
 		if end > len(codes) {
 			end = len(codes)
 		}
@@ -325,22 +429,22 @@ func (s *RealtimePriceService) fetchAndBroadcast() {
 				continue
 			}
 
-			// Update cache
 			s.priceMu.Lock()
 			s.priceCache[code] = price
 			s.priceMu.Unlock()
 
 			allPrices = append(allPrices, *price)
 
-			// Calculate realtime indicators
-			indicator := s.calculateRealtimeIndicators(code, price)
+			indicator := s.calculateIndicatorsWithCache(code, price, indicatorSummary)
 			if indicator != nil {
 				allIndicators = append(allIndicators, *indicator)
 			}
 		}
 
-		// Small delay between batches
-		time.Sleep(100 * time.Millisecond)
+		// Small delay between batches to avoid rate limiting
+		if end < len(codes) {
+			time.Sleep(PriceFetchBatchDelay)
+		}
 	}
 
 	// Broadcast price updates
@@ -354,7 +458,6 @@ func (s *RealtimePriceService) fetchAndBroadcast() {
 
 	// Broadcast indicators
 	if len(allIndicators) > 0 {
-		// Filter for top RS criteria
 		topRS := filterTopRS(allIndicators)
 
 		s.broadcast <- WebSocketMessage{
@@ -363,10 +466,12 @@ func (s *RealtimePriceService) fetchAndBroadcast() {
 			Time: time.Now().Format(time.RFC3339),
 		}
 
-		s.broadcast <- WebSocketMessage{
-			Type: "top_rs",
-			Data: topRS,
-			Time: time.Now().Format(time.RFC3339),
+		if len(topRS) > 0 {
+			s.broadcast <- WebSocketMessage{
+				Type: "top_rs",
+				Data: topRS,
+				Time: time.Now().Format(time.RFC3339),
+			}
 		}
 	}
 }
@@ -377,7 +482,6 @@ func (s *RealtimePriceService) fetchCurrentPrice(code string) (*RealtimePriceDat
 		return nil, fmt.Errorf("price service not initialized")
 	}
 
-	// Fetch latest price from VNDirect
 	priceResp, err := GlobalPriceService.FetchStockPrice(code, 1)
 	if err != nil {
 		return nil, err
@@ -402,31 +506,24 @@ func (s *RealtimePriceService) fetchCurrentPrice(code string) (*RealtimePriceDat
 	}, nil
 }
 
-// calculateRealtimeIndicators calculates indicators using historical data from DuckDB
-func (s *RealtimePriceService) calculateRealtimeIndicators(code string, currentPrice *RealtimePriceData) *RealtimeIndicators {
-	// Load historical indicators
+// calculateIndicatorsWithCache calculates indicators using cached data
+func (s *RealtimePriceService) calculateIndicatorsWithCache(code string, currentPrice *RealtimePriceData, cache *IndicatorSummaryFile) *RealtimeIndicators {
 	var avgVol5D, rs1YRank, rsAvg, macdHist, rsi float64
 
-	// Try to get from indicator summary first (faster)
-	if GlobalIndicatorService != nil {
-		summary, err := GlobalIndicatorService.LoadIndicatorSummary()
-		if err == nil && summary.Stocks[code] != nil {
-			ind := summary.Stocks[code]
-			avgVol5D = ind.AvgVol
-			rs1YRank = ind.RS1YRank
-			rsAvg = ind.RSAvg
-			macdHist = ind.MACDHist
-			rsi = ind.RSI
-		}
+	if cache != nil && cache.Stocks[code] != nil {
+		ind := cache.Stocks[code]
+		avgVol5D = ind.AvgVol
+		rs1YRank = ind.RS1YRank
+		rsAvg = ind.RSAvg
+		macdHist = ind.MACDHist
+		rsi = ind.RSI
 	}
 
-	// Calculate volume ratio with current volume
 	volRatio := 0.0
 	if avgVol5D > 0 && currentPrice.Volume > 0 {
 		volRatio = math.Round((currentPrice.Volume/avgVol5D)*100) / 100
 	}
 
-	// Check if meets top RS criteria
 	inTopRS := avgVol5D >= 600000 && rs1YRank >= 80 && rsAvg >= 40 && macdHist > -0.1
 
 	return &RealtimeIndicators{
@@ -446,45 +543,40 @@ func (s *RealtimePriceService) calculateRealtimeIndicators(code string, currentP
 	}
 }
 
+// calculateRealtimeIndicators calculates indicators (backwards compatibility)
+func (s *RealtimePriceService) calculateRealtimeIndicators(code string, currentPrice *RealtimePriceData) *RealtimeIndicators {
+	return s.calculateIndicatorsWithCache(code, currentPrice, s.getIndicatorCache())
+}
+
 // filterTopRS filters indicators that meet top RS criteria
 func filterTopRS(indicators []RealtimeIndicators) []RealtimeIndicators {
-	result := make([]RealtimeIndicators, 0)
+	result := make([]RealtimeIndicators, 0, len(indicators))
 	for _, ind := range indicators {
 		if ind.InTopRS {
 			result = append(result, ind)
 		}
 	}
 
-	// Sort by RSAvg descending
-	for i := 0; i < len(result)-1; i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[j].RSAvg > result[i].RSAvg {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	// Use efficient sort.Slice instead of bubble sort
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].RSAvg > result[j].RSAvg
+	})
 
 	return result
 }
 
 // loadTopRSCodes loads stock codes that meet top RS criteria
 func (s *RealtimePriceService) loadTopRSCodes() []string {
-	codes := make([]string, 0)
-
-	if GlobalIndicatorService == nil {
-		return codes
+	summary := s.getIndicatorCache()
+	if summary == nil {
+		return nil
 	}
 
-	summary, err := GlobalIndicatorService.LoadIndicatorSummary()
-	if err != nil {
-		return codes
-	}
-
+	codes := make([]string, 0, 100)
 	for code, ind := range summary.Stocks {
 		if ind == nil {
 			continue
 		}
-		// Apply top RS filter criteria
 		if ind.AvgVol >= 600000 && ind.RS1YRank >= 80 && ind.RSAvg >= 40 && ind.MACDHist > -0.1 {
 			codes = append(codes, code)
 		}
@@ -495,8 +587,13 @@ func (s *RealtimePriceService) loadTopRSCodes() []string {
 
 // sendTopRSToClient sends current top RS stocks to a specific client
 func (s *RealtimePriceService) sendTopRSToClient(c *Client) {
+	summary := s.getIndicatorCache()
+	if summary == nil {
+		return
+	}
+
 	codes := s.loadTopRSCodes()
-	indicators := make([]RealtimeIndicators, 0)
+	indicators := make([]RealtimeIndicators, 0, len(codes))
 
 	for _, code := range codes {
 		s.priceMu.RLock()
@@ -504,40 +601,31 @@ func (s *RealtimePriceService) sendTopRSToClient(c *Client) {
 		s.priceMu.RUnlock()
 
 		if price == nil {
-			// Use cached indicator data
-			if GlobalIndicatorService != nil {
-				summary, err := GlobalIndicatorService.LoadIndicatorSummary()
-				if err == nil && summary.Stocks[code] != nil {
-					ind := summary.Stocks[code]
-					indicators = append(indicators, RealtimeIndicators{
-						Code:      code,
-						Price:     ind.CurrentPrice,
-						AvgVol5D:  ind.AvgVol,
-						RS1YRank:  ind.RS1YRank,
-						RSAvg:     ind.RSAvg,
-						MACDHist:  ind.MACDHist,
-						RSI:       ind.RSI,
-						InTopRS:   true,
-						Timestamp: ind.UpdatedAt,
-					})
-				}
+			if ind := summary.Stocks[code]; ind != nil {
+				indicators = append(indicators, RealtimeIndicators{
+					Code:      code,
+					Price:     ind.CurrentPrice,
+					AvgVol5D:  ind.AvgVol,
+					RS1YRank:  ind.RS1YRank,
+					RSAvg:     ind.RSAvg,
+					MACDHist:  ind.MACDHist,
+					RSI:       ind.RSI,
+					InTopRS:   true,
+					Timestamp: ind.UpdatedAt,
+				})
 			}
 		} else {
-			indicator := s.calculateRealtimeIndicators(code, price)
+			indicator := s.calculateIndicatorsWithCache(code, price, summary)
 			if indicator != nil {
 				indicators = append(indicators, *indicator)
 			}
 		}
 	}
 
-	// Sort by RSAvg
-	for i := 0; i < len(indicators)-1; i++ {
-		for j := i + 1; j < len(indicators); j++ {
-			if indicators[j].RSAvg > indicators[i].RSAvg {
-				indicators[i], indicators[j] = indicators[j], indicators[i]
-			}
-		}
-	}
+	// Use efficient sort
+	sort.Slice(indicators, func(i, j int) bool {
+		return indicators[i].RSAvg > indicators[j].RSAvg
+	})
 
 	msg := WebSocketMessage{
 		Type: "top_rs",
@@ -553,6 +641,7 @@ func (s *RealtimePriceService) sendTopRSToClient(c *Client) {
 	select {
 	case c.send <- data:
 	default:
+		// Client buffer full, skip
 	}
 }
 
@@ -572,6 +661,12 @@ func (s *RealtimePriceService) IsPolling() bool {
 
 // SetPollingInterval sets the polling interval
 func (s *RealtimePriceService) SetPollingInterval(seconds int) {
+	if seconds < 1 {
+		seconds = 1
+	}
+	if seconds > 300 {
+		seconds = 300
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pollingInterval = time.Duration(seconds) * time.Second
@@ -583,5 +678,19 @@ func (s *RealtimePriceService) BroadcastMessage(msgType string, data interface{}
 		Type: msgType,
 		Data: data,
 		Time: time.Now().Format(time.RFC3339),
+	}
+}
+
+// GetStatus returns service status info
+func (s *RealtimePriceService) GetStatus() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return map[string]interface{}{
+		"is_polling":       s.isRunning,
+		"client_count":     len(s.clients),
+		"max_clients":      MaxWebSocketClients,
+		"poll_interval_sec": int(s.pollingInterval.Seconds()),
+		"stock_codes":      len(s.stockCodes),
 	}
 }
