@@ -482,6 +482,7 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				mongoAPI.GET("/status", stockCtrl.GetMongoDBStatus)
 				mongoAPI.POST("/sync-to", stockCtrl.SyncToMongoDB)
 				mongoAPI.POST("/restore-from", stockCtrl.RestoreFromMongoDB)
+				mongoAPI.POST("/reconnect", stockCtrl.ReconnectMongoDB)
 			}
 		}
 

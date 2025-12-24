@@ -679,21 +679,72 @@ func (ctrl *StockController) GetRealtimeStatus(c *gin.Context) {
 
 // GetMongoDBStatus returns MongoDB Atlas connection status and statistics
 func (ctrl *StockController) GetMongoDBStatus(c *gin.Context) {
-	if services.GlobalMongoClient == nil || !services.GlobalMongoClient.IsConfigured() {
+	if services.GlobalMongoClient == nil {
 		c.JSON(http.StatusOK, gin.H{
+			"uri_set":    false,
+			"connected":  false,
 			"configured": false,
-			"message":    "MongoDB Atlas not configured. Set MONGODB_URI environment variable to enable.",
+			"message":    "MongoDB Atlas not initialized",
 		})
 		return
 	}
 
-	stats, err := services.GlobalMongoClient.GetMongoDBStats()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	// Get connection status with error details
+	status := services.GlobalMongoClient.GetConnectionStatus()
+
+	if !services.GlobalMongoClient.IsConfigured() {
+		status["configured"] = false
+		if !services.GlobalMongoClient.IsURISet() {
+			status["message"] = "MONGODB_URI environment variable not set"
+		} else {
+			status["message"] = "MongoDB connection failed"
+		}
+		c.JSON(http.StatusOK, status)
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	// Get stats if connected
+	stats, err := services.GlobalMongoClient.GetMongoDBStats()
+	if err != nil {
+		status["stats_error"] = err.Error()
+		c.JSON(http.StatusOK, status)
+		return
+	}
+
+	// Merge stats into status
+	for k, v := range stats {
+		status[k] = v
+	}
+	status["configured"] = true
+
+	c.JSON(http.StatusOK, status)
+}
+
+// ReconnectMongoDB attempts to reconnect to MongoDB Atlas
+func (ctrl *StockController) ReconnectMongoDB(c *gin.Context) {
+	if services.GlobalMongoClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MongoDB client not initialized"})
+		return
+	}
+
+	if !services.GlobalMongoClient.IsURISet() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MONGODB_URI environment variable not set"})
+		return
+	}
+
+	err := services.GlobalMongoClient.Reconnect()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Successfully reconnected to MongoDB Atlas",
+	})
 }
 
 // SyncToMongoDB syncs all local data to MongoDB Atlas
