@@ -546,3 +546,72 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 		},
 	})
 }
+
+// ==================== Realtime WebSocket Endpoints ====================
+
+// HandleRealtimeWebSocket handles WebSocket connections for realtime prices
+func (ctrl *StockController) HandleRealtimeWebSocket(c *gin.Context) {
+	if services.GlobalRealtimeService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Realtime service not initialized"})
+		return
+	}
+
+	services.GlobalRealtimeService.HandleWebSocket(c.Writer, c.Request)
+}
+
+// StartRealtimePolling starts realtime price polling
+func (ctrl *StockController) StartRealtimePolling(c *gin.Context) {
+	if services.GlobalRealtimeService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Realtime service not initialized"})
+		return
+	}
+
+	var req struct {
+		Codes    []string `json:"codes"`
+		Interval int      `json:"interval"` // seconds
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// Start with top RS stocks if no codes provided
+		req.Codes = nil
+	}
+
+	if req.Interval > 0 {
+		services.GlobalRealtimeService.SetPollingInterval(req.Interval)
+	}
+
+	if err := services.GlobalRealtimeService.StartPolling(req.Codes); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Realtime polling started",
+		"codes":   len(req.Codes),
+	})
+}
+
+// StopRealtimePolling stops realtime price polling
+func (ctrl *StockController) StopRealtimePolling(c *gin.Context) {
+	if services.GlobalRealtimeService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Realtime service not initialized"})
+		return
+	}
+
+	services.GlobalRealtimeService.StopPolling()
+	c.JSON(http.StatusOK, gin.H{"message": "Realtime polling stopped"})
+}
+
+// GetRealtimeStatus returns realtime service status
+func (ctrl *StockController) GetRealtimeStatus(c *gin.Context) {
+	if services.GlobalRealtimeService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Realtime service not initialized"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"is_polling":    services.GlobalRealtimeService.IsPolling(),
+		"client_count":  services.GlobalRealtimeService.GetClientCount(),
+		"websocket_url": "/ws/realtime",
+	})
+}

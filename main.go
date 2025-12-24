@@ -171,6 +171,13 @@ func initLocalServices() {
 		log.Println("Indicator Service initialized successfully")
 	}
 
+	// Initialize Realtime Price Service (WebSocket)
+	if err := services.InitRealtimePriceService(); err != nil {
+		log.Printf("Warning: Failed to initialize Realtime Price Service: %v", err)
+	} else {
+		log.Println("Realtime Price Service initialized successfully")
+	}
+
 	log.Println("Local services initialized")
 }
 
@@ -421,7 +428,18 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				indicatorAPI.POST("/filter", stockCtrl.FilterStocks)
 				indicatorAPI.GET("/:code", stockCtrl.GetStockIndicators)
 			}
+
+			// Realtime Price API
+			realtimeAPI := protected.Group("/api/realtime")
+			{
+				realtimeAPI.GET("/status", stockCtrl.GetRealtimeStatus)
+				realtimeAPI.POST("/start", stockCtrl.StartRealtimePolling)
+				realtimeAPI.POST("/stop", stockCtrl.StopRealtimePolling)
+			}
 		}
+
+		// WebSocket endpoint (outside auth middleware for direct connection)
+		adminRoutes.GET("/ws/realtime", stockCtrl.HandleRealtimeWebSocket)
 	}
 
 	// API health check for Supabase mode
