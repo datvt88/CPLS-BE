@@ -291,7 +291,7 @@ func (bot *TradingBot) rsiStrategy(stockID uint, params map[string]interface{}, 
 		if confidence.GreaterThan(decimal.NewFromInt(100)) {
 			confidence = decimal.NewFromInt(100)
 		}
-		return "BUY", confidence, fmt.Sprintf("RSI oversold at %.2f", rsi)
+		return "BUY", confidence, fmt.Sprintf("RSI oversold at %s", rsi.StringFixed(2))
 	}
 
 	if rsi.GreaterThan(overbought) {
@@ -299,7 +299,7 @@ func (bot *TradingBot) rsiStrategy(stockID uint, params map[string]interface{}, 
 		if confidence.GreaterThan(decimal.NewFromInt(100)) {
 			confidence = decimal.NewFromInt(100)
 		}
-		return "SELL", confidence, fmt.Sprintf("RSI overbought at %.2f", rsi)
+		return "SELL", confidence, fmt.Sprintf("RSI overbought at %s", rsi.StringFixed(2))
 	}
 
 	return "HOLD", decimal.Zero, ""
@@ -387,7 +387,7 @@ func (bot *TradingBot) executeBuyOrder(signal *models.Signal, stock *models.Stoc
 	// In production, this would place an actual order through broker API
 	// For now, we'll create a pending trade record
 
-	log.Printf("BUY signal for %s: %s (confidence: %.2f)", stock.Symbol, signal.Reason, signal.Confidence)
+	log.Printf("BUY signal for %s: %s (confidence: %s)", stock.Symbol, signal.Reason, signal.Confidence.StringFixed(2))
 
 	// Calculate quantity based on risk management
 	// This is simplified - in production, use proper position sizing
@@ -412,7 +412,7 @@ func (bot *TradingBot) executeBuyOrder(signal *models.Signal, stock *models.Stoc
 		return
 	}
 
-	log.Printf("Buy order created for %s: %d shares at %.2f", stock.Symbol, quantity, signal.Price)
+	log.Printf("Buy order created for %s: %d shares at %s", stock.Symbol, quantity, signal.Price.StringFixed(2))
 }
 
 // executeSellOrder executes a sell order
@@ -424,7 +424,7 @@ func (bot *TradingBot) executeSellOrder(signal *models.Signal, stock *models.Sto
 		return // No position to sell
 	}
 
-	log.Printf("SELL signal for %s: %s (confidence: %.2f)", stock.Symbol, signal.Reason, signal.Confidence)
+	log.Printf("SELL signal for %s: %s (confidence: %s)", stock.Symbol, signal.Reason, signal.Confidence.StringFixed(2))
 
 	trade := models.Trade{
 		UserID:     1, // System user
@@ -445,7 +445,7 @@ func (bot *TradingBot) executeSellOrder(signal *models.Signal, stock *models.Sto
 		return
 	}
 
-	log.Printf("Sell order created for %s: %d shares at %.2f", stock.Symbol, portfolio.Quantity, signal.Price)
+	log.Printf("Sell order created for %s: %d shares at %s", stock.Symbol, portfolio.Quantity, signal.Price.StringFixed(2))
 }
 
 // ManualTrade allows manual trade execution
@@ -478,6 +478,6 @@ func (bot *TradingBot) ManualTrade(userID uint, stockID uint, tradeType string, 
 		return fmt.Errorf("failed to create trade: %w", err)
 	}
 
-	log.Printf("Manual %s order created: %s %d shares at %.2f", tradeType, stock.Symbol, quantity, price)
+	log.Printf("Manual %s order created: %s %d shares at %s", tradeType, stock.Symbol, quantity, price.StringFixed(2))
 	return nil
 }
