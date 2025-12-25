@@ -471,10 +471,11 @@ func (ctrl *StockController) FilterStocks(c *gin.Context) {
 // Supports flexible filtering via query parameters:
 // - rs_avg_min, rs_3d_min, rs_1m_min, rs_3m_min, rs_1y_min (RS rank filters)
 // - macd_hist_min, macd_hist_max (MACD histogram filters)
+// - price_min, price_max (current price filters in 1000 VND units)
 // - avg_vol_min (minimum average volume)
-// - avg_trading_val_min (minimum average trading value)
+// - avg_trading_val_min (minimum average trading value in billions VND)
 // - ma10_above_ma30=true, ma50_above_ma200=true (MA condition filters)
-// - sort_by (rs_avg, rs_1y, rs_3m, rs_1m, rs_3d, macd_hist, avg_vol)
+// - sort_by (rs_avg, rs_1y, rs_3m, rs_1m, rs_3d, macd_hist, avg_vol, price)
 func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 	if services.GlobalIndicatorService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Indicator service not initialized"})
@@ -496,6 +497,10 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 	avgVolMin, _ := strconv.ParseFloat(c.DefaultQuery("avg_vol_min", "600000"), 64)
 	avgTradingValMin, _ := strconv.ParseFloat(c.DefaultQuery("avg_trading_val_min", "0"), 64)
 	sortBy := c.DefaultQuery("sort_by", "rs_avg")
+
+	// Price filters (in 1000 VND units)
+	priceMin, _ := strconv.ParseFloat(c.DefaultQuery("price_min", "0"), 64)
+	priceMax, _ := strconv.ParseFloat(c.DefaultQuery("price_max", "0"), 64)
 
 	// MA condition filters
 	ma10AboveMA30 := c.Query("ma10_above_ma30") == "true"
@@ -541,6 +546,14 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 			continue
 		}
 
+		// Apply Price Filters
+		if priceMin > 0 && ind.CurrentPrice < priceMin {
+			continue
+		}
+		if priceMax > 0 && ind.CurrentPrice > priceMax {
+			continue
+		}
+
 		// Apply Volume Filter
 		if avgVolMin > 0 && ind.AvgVol < avgVolMin {
 			continue
@@ -579,6 +592,8 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 			return stocks[i].Indicators.AvgVol > stocks[j].Indicators.AvgVol
 		case "avg_trading_val":
 			return stocks[i].Indicators.AvgTradingVal > stocks[j].Indicators.AvgTradingVal
+		case "price":
+			return stocks[i].Indicators.CurrentPrice > stocks[j].Indicators.CurrentPrice
 		default: // rs_avg
 			return stocks[i].Indicators.RSAvg > stocks[j].Indicators.RSAvg
 		}
@@ -593,17 +608,19 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 		"count":  len(stocks),
 		"stocks": stocks,
 		"filter": gin.H{
-			"rs_avg_min":           rsAvgMin,
-			"rs_3d_min":            rs3DMin,
-			"rs_1m_min":            rs1MMin,
-			"rs_3m_min":            rs3MMin,
-			"rs_1y_min":            rs1YMin,
-			"macd_hist_min":        macdHistMin,
-			"avg_vol_min":          avgVolMin,
-			"avg_trading_val_min":  avgTradingValMin,
-			"ma10_above_ma30":      ma10AboveMA30,
-			"ma50_above_ma200":     ma50AboveMA200,
-			"sort_by":              sortBy,
+			"rs_avg_min":          rsAvgMin,
+			"rs_3d_min":           rs3DMin,
+			"rs_1m_min":           rs1MMin,
+			"rs_3m_min":           rs3MMin,
+			"rs_1y_min":           rs1YMin,
+			"macd_hist_min":       macdHistMin,
+			"price_min":           priceMin,
+			"price_max":           priceMax,
+			"avg_vol_min":         avgVolMin,
+			"avg_trading_val_min": avgTradingValMin,
+			"ma10_above_ma30":     ma10AboveMA30,
+			"ma50_above_ma200":    ma50AboveMA200,
+			"sort_by":             sortBy,
 		},
 	})
 }

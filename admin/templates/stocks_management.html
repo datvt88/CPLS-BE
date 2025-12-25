@@ -360,15 +360,24 @@
                                     <input type="number" class="form-control form-control-sm" id="macd_hist_min" value="-0.1" step="0.01">
                                 </div>
 
+                                <!-- Price Filters -->
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">Price Min</label>
+                                    <input type="number" class="form-control form-control-sm" id="price_min" value="0" step="1" min="0" placeholder="1000 VND">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">Price Max</label>
+                                    <input type="number" class="form-control form-control-sm" id="price_max" value="0" step="1" min="0" placeholder="1000 VND">
+                                </div>
+
                                 <!-- Volume/Value Filters -->
                                 <div class="col-md-2">
                                     <label class="form-label fw-bold">Avg Vol Min</label>
                                     <input type="number" class="form-control form-control-sm" id="avg_vol_min" value="600000" step="10000">
                                 </div>
                                 <div class="col-md-2">
-                                    <label class="form-label fw-bold">Avg Trading Vol (tỷ)</label>
+                                    <label class="form-label fw-bold">Avg Trading Val (tỷ)</label>
                                     <input type="number" class="form-control form-control-sm" id="avg_trading_val_min" value="0" step="0.1" placeholder="tỷ VND">
-                                    <small class="text-muted">= Vol × Price (5 phiên)</small>
                                 </div>
 
                                 <!-- MA Conditions -->
@@ -397,8 +406,9 @@
                                         <option value="rs_1m">RS 1M</option>
                                         <option value="rs_3d">RS 3D</option>
                                         <option value="macd_hist">MACD Hist</option>
+                                        <option value="price">Price</option>
                                         <option value="avg_vol">Avg Volume</option>
-                                        <option value="avg_trading_val">Avg Trading Vol</option>
+                                        <option value="avg_trading_val">Avg Trading Val</option>
                                     </select>
                                 </div>
                                 <div class="col-md-2">
@@ -1299,7 +1309,8 @@
         }
 
         function formatBillions(num) {
-            return (num / 1000000000).toFixed(2) + ' tỷ';
+            // num is already in billions (tỷ VND) from API
+            return num.toFixed(2) + ' tỷ';
         }
 
         function applyFilter() {
@@ -1312,9 +1323,15 @@
             params.append('macd_hist_min', document.getElementById('macd_hist_min').value || -999);
             params.append('avg_vol_min', document.getElementById('avg_vol_min').value || 0);
 
-            // Convert tỷ (billions) to raw value for API
-            const avgTradingValBillions = parseFloat(document.getElementById('avg_trading_val_min').value) || 0;
-            params.append('avg_trading_val_min', avgTradingValBillions * 1000000000);
+            // Price filters (in 1000 VND units)
+            const priceMin = parseFloat(document.getElementById('price_min').value) || 0;
+            const priceMax = parseFloat(document.getElementById('price_max').value) || 0;
+            if (priceMin > 0) params.append('price_min', priceMin);
+            if (priceMax > 0) params.append('price_max', priceMax);
+
+            // Avg Trading Val filter (already in tỷ - billions VND)
+            const avgTradingValMin = parseFloat(document.getElementById('avg_trading_val_min').value) || 0;
+            params.append('avg_trading_val_min', avgTradingValMin);
 
             params.append('sort_by', document.getElementById('sort_by').value);
             params.append('limit', document.getElementById('limit').value || 50);
