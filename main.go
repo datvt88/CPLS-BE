@@ -75,10 +75,10 @@ func main() {
 		log.Printf("Warning: Failed to load templates: %v", err)
 	}
 
-	// Initialize local services (always run, regardless of auth mode)
-	initLocalServices()
+	// Initialize FAST local services first (non-blocking)
+	initFastLocalServices()
 
-	// Initialize connection BEFORE starting server
+	// Initialize connection (Supabase auth) - needed for routes
 	initializeConnection(router)
 
 	// Setup basic routes
@@ -87,7 +87,7 @@ func main() {
 	// Setup admin login routes
 	setupAdminLoginRoutes(router)
 
-	// Start server
+	// Start server FIRST - Cloud Run needs port to be listening quickly
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%s", cfg.Port),
 		Handler: router,
@@ -101,6 +101,9 @@ func main() {
 	}()
 
 	log.Println("=== Server is ready ===")
+
+	// Initialize SLOW services in background (MongoDB, data restore)
+	go initSlowServices()
 
 	// Wait for shutdown signal
 	quit := make(chan os.Signal, 1)
@@ -146,22 +149,16 @@ func main() {
 	server.Shutdown(ctx)
 }
 
-// initLocalServices initializes local services (DuckDB, Price, Indicators) - always runs
-func initLocalServices() {
-	log.Println("Initializing local services...")
+// initFastLocalServices initializes fast, non-blocking local services
+// These must complete quickly so the server can start listening on the port
+func initFastLocalServices() {
+	log.Println("Initializing fast local services...")
 
-	// Initialize DuckDB for local data storage
+	// Initialize DuckDB for local data storage (fast, local file)
 	if err := services.InitDuckDB(); err != nil {
 		log.Printf("Warning: Failed to initialize DuckDB: %v", err)
 	} else {
 		log.Println("DuckDB initialized successfully")
-	}
-
-	// Initialize MongoDB Atlas for cloud persistence (persists across deploys)
-	if err := services.InitMongoDBClient(); err != nil {
-		log.Printf("Warning: Failed to initialize MongoDB Atlas: %v", err)
-	} else if services.GlobalMongoClient != nil && services.GlobalMongoClient.IsConfigured() {
-		log.Println("MongoDB Atlas initialized successfully")
 	}
 
 	// Initialize Stock Scheduler
@@ -192,10 +189,25 @@ func initLocalServices() {
 		log.Println("Realtime Price Service initialized successfully")
 	}
 
-	// Restore data from MongoDB if local data is missing (after redeploy)
-	restoreDataFromMongoDB()
+	log.Println("Fast local services initialized")
+}
 
-	log.Println("Local services initialized")
+// initSlowServices initializes slow services in background after server starts
+// This includes MongoDB connection and data restoration which may take time
+func initSlowServices() {
+	log.Println("Initializing slow services in background...")
+
+	// Initialize MongoDB Atlas for cloud persistence (may timeout, run in background)
+	if err := services.InitMongoDBClient(); err != nil {
+		log.Printf("Warning: Failed to initialize MongoDB Atlas: %v", err)
+	} else if services.GlobalMongoClient != nil && services.GlobalMongoClient.IsConfigured() {
+		log.Println("MongoDB Atlas initialized successfully")
+
+		// Only restore data if MongoDB connected successfully
+		restoreDataFromMongoDB()
+	}
+
+	log.Println("Slow services initialization complete")
 }
 
 // restoreDataFromMongoDB restores data from MongoDB Atlas if local data is missing
