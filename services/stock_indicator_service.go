@@ -281,17 +281,18 @@ func CalculateIndicatorsForStock(priceFile *StockPriceFile) *ExtendedStockIndica
 
 	prices := priceFile.Prices
 
-	// Extract close prices and volumes (prices are sorted desc by date)
+	// Extract ADJUSTED close prices and volumes (prices are sorted desc by date)
+	// Using AdClose for technical indicator calculations to account for stock splits, dividends, etc.
 	closePrices := make([]float64, len(prices))
 	volumes := make([]float64, len(prices))
 
 	for i, p := range prices {
-		closePrices[i] = p.Close
+		closePrices[i] = p.AdClose // Use adjusted close price for accurate calculations
 		volumes[i] = p.NmVolume
 	}
 
 	indicators := &ExtendedStockIndicators{
-		CurrentPrice: closePrices[0],
+		CurrentPrice: prices[0].Close, // Display current actual price (not adjusted)
 		UpdatedAt:    time.Now().Format(time.RFC3339),
 	}
 
