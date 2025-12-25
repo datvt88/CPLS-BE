@@ -332,83 +332,122 @@ func CalculateIndicatorsForStock(priceFile *StockPriceFile) *ExtendedStockIndica
 
 // StockRSData holds RS values for ranking
 type StockRSData struct {
-	Code string
-	RS3D float64
-	RS1M float64
-	RS3M float64
-	RS1Y float64
+	Code  string
+	Value float64 // The RS value for this specific period
 }
 
+// MinTradingValForRS is the minimum average trading value (in billions VND)
+// to be included in RS ranking. This filters for large cap stocks.
+// 1 billion VND trading value roughly corresponds to ~1000 billion VND market cap
+const MinTradingValForRS = 1.0 // 1 tỷ VND
+
 // CalculateRSRanks calculates percentile ranks for all stocks
+// Only stocks with AvgTradingVal >= MinTradingValForRS are included in ranking
+// to compare large cap stocks against each other (as per user requirement)
 func CalculateRSRanks(allIndicators map[string]*ExtendedStockIndicators) {
 	if len(allIndicators) == 0 {
 		return
 	}
 
-	// Collect all RS values
-	rs3dValues := make([]StockRSData, 0, len(allIndicators))
-	rs1mValues := make([]StockRSData, 0, len(allIndicators))
-	rs3mValues := make([]StockRSData, 0, len(allIndicators))
-	rs1yValues := make([]StockRSData, 0, len(allIndicators))
+	// Collect stocks that qualify for RS ranking (large cap filter)
+	// Collect separate slices for each RS period
+	type rsEntry struct {
+		code  string
+		value float64
+	}
+
+	var rs3dList, rs1mList, rs3mList, rs1yList []rsEntry
 
 	for code, ind := range allIndicators {
 		if ind == nil {
 			continue
 		}
-		data := StockRSData{Code: code, RS3D: ind.RS3D, RS1M: ind.RS1M, RS3M: ind.RS3M, RS1Y: ind.RS1Y}
-		rs3dValues = append(rs3dValues, data)
-		rs1mValues = append(rs1mValues, data)
-		rs3mValues = append(rs3mValues, data)
-		rs1yValues = append(rs1yValues, data)
+
+		// Filter: Only include stocks with significant trading value
+		// This approximates the "market cap >= 1000 billion VND" requirement
+		if ind.AvgTradingVal < MinTradingValForRS {
+			// Set default ranks for small cap stocks (not ranked)
+			ind.RS3DRank = 0
+			ind.RS1MRank = 0
+			ind.RS3MRank = 0
+			ind.RS1YRank = 0
+			ind.RSAvg = 0
+			continue
+		}
+
+		// Add to each RS period list separately
+		rs3dList = append(rs3dList, rsEntry{code: code, value: ind.RS3D})
+		rs1mList = append(rs1mList, rsEntry{code: code, value: ind.RS1M})
+		rs3mList = append(rs3mList, rsEntry{code: code, value: ind.RS3M})
+		rs1yList = append(rs1yList, rsEntry{code: code, value: ind.RS1Y})
 	}
 
-	// Sort and assign ranks (higher RS = higher rank)
-	// RS3D
-	sort.Slice(rs3dValues, func(i, j int) bool {
-		return rs3dValues[i].RS3D < rs3dValues[j].RS3D
-	})
-	for i, v := range rs3dValues {
-		if ind, ok := allIndicators[v.Code]; ok {
-			ind.RS3DRank = math.Round(float64(i+1) / float64(len(rs3dValues)) * 100)
+	// Helper function to sort and assign ranks
+	assignRanks := func(list []rsEntry, setRank func(code string, rank float64)) {
+		if len(list) == 0 {
+			return
+		}
+
+		// Sort ascending by value (lower value = lower rank)
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].value < list[j].value
+		})
+
+		// Assign percentile ranks (1-100)
+		totalStocks := float64(len(list))
+		for i, entry := range list {
+			// Percentile rank: position / total * 100
+			// Position starts at 1 (not 0) for percentile calculation
+			rank := math.Round((float64(i+1) / totalStocks) * 100)
+			if rank < 1 {
+				rank = 1
+			}
+			if rank > 100 {
+				rank = 100
+			}
+			setRank(entry.code, rank)
 		}
 	}
 
-	// RS1M
-	sort.Slice(rs1mValues, func(i, j int) bool {
-		return rs1mValues[i].RS1M < rs1mValues[j].RS1M
-	})
-	for i, v := range rs1mValues {
-		if ind, ok := allIndicators[v.Code]; ok {
-			ind.RS1MRank = math.Round(float64(i+1) / float64(len(rs1mValues)) * 100)
+	// Calculate RS3D ranks
+	assignRanks(rs3dList, func(code string, rank float64) {
+		if ind, ok := allIndicators[code]; ok {
+			ind.RS3DRank = rank
 		}
-	}
-
-	// RS3M
-	sort.Slice(rs3mValues, func(i, j int) bool {
-		return rs3mValues[i].RS3M < rs3mValues[j].RS3M
 	})
-	for i, v := range rs3mValues {
-		if ind, ok := allIndicators[v.Code]; ok {
-			ind.RS3MRank = math.Round(float64(i+1) / float64(len(rs3mValues)) * 100)
-		}
-	}
 
-	// RS1Y
-	sort.Slice(rs1yValues, func(i, j int) bool {
-		return rs1yValues[i].RS1Y < rs1yValues[j].RS1Y
+	// Calculate RS1M ranks
+	assignRanks(rs1mList, func(code string, rank float64) {
+		if ind, ok := allIndicators[code]; ok {
+			ind.RS1MRank = rank
+		}
 	})
-	for i, v := range rs1yValues {
-		if ind, ok := allIndicators[v.Code]; ok {
-			ind.RS1YRank = math.Round(float64(i+1) / float64(len(rs1yValues)) * 100)
-		}
-	}
 
-	// Calculate RSAvg (average of all ranks)
-	for _, ind := range allIndicators {
+	// Calculate RS3M ranks
+	assignRanks(rs3mList, func(code string, rank float64) {
+		if ind, ok := allIndicators[code]; ok {
+			ind.RS3MRank = rank
+		}
+	})
+
+	// Calculate RS1Y ranks
+	assignRanks(rs1yList, func(code string, rank float64) {
+		if ind, ok := allIndicators[code]; ok {
+			ind.RS1YRank = rank
+		}
+	})
+
+	// Calculate RSAvg (average of all ranks) for qualified stocks
+	for code := range allIndicators {
+		ind := allIndicators[code]
 		if ind == nil {
 			continue
 		}
-		ind.RSAvg = math.Round((ind.RS3DRank + ind.RS1MRank + ind.RS3MRank + ind.RS1YRank) / 4)
+
+		// Only calculate RSAvg for stocks that were ranked
+		if ind.RS3DRank > 0 || ind.RS1MRank > 0 || ind.RS3MRank > 0 || ind.RS1YRank > 0 {
+			ind.RSAvg = math.Round((ind.RS3DRank + ind.RS1MRank + ind.RS3MRank + ind.RS1YRank) / 4)
+		}
 	}
 }
 
