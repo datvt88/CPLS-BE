@@ -639,7 +639,7 @@ func (s *StockIndicatorService) SaveIndicatorSummary(indicators map[string]*Exte
 	return nil
 }
 
-// LoadIndicatorSummary loads the indicator summary file, from DuckDB, MongoDB, or Supabase
+// LoadIndicatorSummary loads the indicator summary file from local file or MongoDB
 func (s *StockIndicatorService) LoadIndicatorSummary() (*IndicatorSummaryFile, error) {
 	summaryPath := filepath.Join("data", "indicators_summary.json")
 
@@ -649,24 +649,6 @@ func (s *StockIndicatorService) LoadIndicatorSummary() (*IndicatorSummaryFile, e
 		var summary IndicatorSummaryFile
 		if err := json.Unmarshal(data, &summary); err == nil && len(summary.Stocks) > 0 {
 			return &summary, nil
-		}
-	}
-
-	// Fallback to DuckDB if local file not found
-	if GlobalDuckDB != nil {
-		indicators, err := GlobalDuckDB.LoadAllIndicators()
-		if err == nil && len(indicators) > 0 {
-			count, updatedAt, _ := GlobalDuckDB.GetIndicatorsCount()
-			summary := &IndicatorSummaryFile{
-				UpdatedAt: updatedAt,
-				Count:     count,
-				Stocks:    indicators,
-			}
-			// Cache to local file for faster future reads
-			if cacheData, err := json.MarshalIndent(summary, "", "  "); err == nil {
-				os.WriteFile(summaryPath, cacheData, 0644)
-			}
-			return summary, nil
 		}
 	}
 
@@ -680,15 +662,10 @@ func (s *StockIndicatorService) LoadIndicatorSummary() (*IndicatorSummaryFile, e
 				Count:     len(indicators),
 				Stocks:    indicators,
 			}
-			// Cache to local file and DuckDB for faster future reads
+			// Cache to local file for faster future reads
 			if cacheData, err := json.MarshalIndent(summary, "", "  "); err == nil {
 				os.WriteFile(summaryPath, cacheData, 0644)
 				log.Printf("Cached %d indicators from MongoDB to local file", len(indicators))
-			}
-			if GlobalDuckDB != nil {
-				if err := GlobalDuckDB.SaveAllIndicators(indicators); err == nil {
-					log.Printf("Cached %d indicators from MongoDB to DuckDB", len(indicators))
-				}
 			}
 			return summary, nil
 		}
@@ -713,13 +690,6 @@ func (s *StockIndicatorService) CalculateAndSaveAllIndicators() error {
 	// Save summary file
 	if err := s.SaveIndicatorSummary(indicators); err != nil {
 		return err
-	}
-
-	// Save to local DuckDB database
-	if GlobalDuckDB != nil {
-		if err := GlobalDuckDB.SaveAllIndicators(indicators); err != nil {
-			log.Printf("Warning: failed to save indicators to DuckDB: %v", err)
-		}
 	}
 
 	// Save to MongoDB Atlas for persistence across deploys

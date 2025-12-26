@@ -15,8 +15,7 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application
-# Use -mod=mod to allow go to update go.mod if needed
+# Build the application (CGO disabled - no sqlite3)
 RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o main .
 
 # Final stage
@@ -26,6 +25,9 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
+
+# Create data directory for local file storage
+RUN mkdir -p /app/data /app/data/stocks
 
 # Copy binary from builder
 COPY --from=builder /app/main .

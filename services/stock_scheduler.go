@@ -191,7 +191,7 @@ func (s *StockScheduler) run() {
 
 // runSync performs the actual sync
 func (s *StockScheduler) runSync() {
-	result, err := SyncStocksFromVNDirectToDuckDB()
+	result, err := SyncStocksFromVNDirect()
 	if err != nil {
 		log.Printf("Scheduled stock sync failed: %v", err)
 	} else {
@@ -258,7 +258,7 @@ func parseTimeFormat(timeStr string, hour, min *int) (bool, error) {
 
 // RunSyncNow triggers an immediate sync (for manual trigger)
 func (s *StockScheduler) RunSyncNow() (*StockSyncResult, error) {
-	result, err := SyncStocksFromVNDirectToDuckDB()
+	result, err := SyncStocksFromVNDirect()
 	if err != nil {
 		return nil, err
 	}

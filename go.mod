@@ -9,7 +9,6 @@ require (
 	github.com/go-co-op/gocron v1.37.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/shopspring/decimal v1.4.0
 	go.mongodb.org/mongo-driver v1.17.1
 	golang.org/x/crypto v0.46.0
