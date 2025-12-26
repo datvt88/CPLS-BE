@@ -231,10 +231,10 @@ func (ac *AdminController) RunBacktestAction(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Backtest completed",
-		"backtest_id": backtest.ID,
+		"message":      "Backtest completed",
+		"backtest_id":  backtest.ID,
 		"total_return": backtest.TotalReturn,
-		"win_rate": backtest.WinRate,
+		"win_rate":     backtest.WinRate,
 	})
 }
 
@@ -304,11 +304,11 @@ func (ac *AdminController) AdminUsersPage(c *gin.Context) {
 	ac.db.Order("created_at DESC").Find(&adminUsers)
 
 	c.HTML(http.StatusOK, "admin_users.html", gin.H{
-		"adminUsers":    adminUsers,
-		"currentAdmin":  adminUser,
-		"adminUser":     adminUser,
-		"page":          "admin_users",
-		"title":         "Admin Users",
+		"adminUsers":   adminUsers,
+		"currentAdmin": adminUser,
+		"adminUser":    adminUser,
+		"page":         "admin_users",
+		"title":        "Admin Users",
 	})
 }
 
@@ -725,15 +725,15 @@ func (ac *AdminController) DeleteConditionAction(c *gin.Context) {
 // CreateSignalRuleAction creates a new signal rule
 func (ac *AdminController) CreateSignalRuleAction(c *gin.Context) {
 	var request struct {
-		Name            string   `json:"name" binding:"required"`
-		Description     string   `json:"description"`
-		SignalType      string   `json:"signal_type" binding:"required"`
-		StrategyType    string   `json:"strategy_type"`
-		MinScore        int      `json:"min_score"`
-		TargetPercent   float64  `json:"target_percent"`
-		StopLossPercent float64  `json:"stop_loss_percent"`
-		Priority        int      `json:"priority"`
-		GroupIDs        []uint   `json:"group_ids"`
+		Name            string  `json:"name" binding:"required"`
+		Description     string  `json:"description"`
+		SignalType      string  `json:"signal_type" binding:"required"`
+		StrategyType    string  `json:"strategy_type"`
+		MinScore        int     `json:"min_score"`
+		TargetPercent   float64 `json:"target_percent"`
+		StopLossPercent float64 `json:"stop_loss_percent"`
+		Priority        int     `json:"priority"`
+		GroupIDs        []uint  `json:"group_ids"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -800,16 +800,16 @@ func (ac *AdminController) UpdateSignalRuleAction(c *gin.Context) {
 	}
 
 	var request struct {
-		Name            string   `json:"name"`
-		Description     string   `json:"description"`
-		SignalType      string   `json:"signal_type"`
-		StrategyType    string   `json:"strategy_type"`
-		MinScore        int      `json:"min_score"`
-		TargetPercent   float64  `json:"target_percent"`
-		StopLossPercent float64  `json:"stop_loss_percent"`
-		Priority        int      `json:"priority"`
-		IsActive        bool     `json:"is_active"`
-		GroupIDs        []uint   `json:"group_ids"`
+		Name            string  `json:"name"`
+		Description     string  `json:"description"`
+		SignalType      string  `json:"signal_type"`
+		StrategyType    string  `json:"strategy_type"`
+		MinScore        int     `json:"min_score"`
+		TargetPercent   float64 `json:"target_percent"`
+		StopLossPercent float64 `json:"stop_loss_percent"`
+		Priority        int     `json:"priority"`
+		IsActive        bool    `json:"is_active"`
+		GroupIDs        []uint  `json:"group_ids"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -1015,8 +1015,8 @@ func (ac *AdminController) TestStockWithConditionsAction(c *gin.Context) {
 	}
 
 	result := gin.H{
-		"stock":      stockCode,
-		"price":      indicators.CurrentPrice,
+		"stock": stockCode,
+		"price": indicators.CurrentPrice,
 		"indicators": map[string]interface{}{
 			"rsi":              indicators.RSI,
 			"macd":             indicators.MACD,

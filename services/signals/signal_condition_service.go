@@ -42,19 +42,19 @@ type GroupEvaluationResult struct {
 
 // RuleSignal represents a signal generated from a rule
 type RuleSignal struct {
-	Rule          *models.SignalRule
-	StockCode     string
-	SignalType    string
-	Score         int
-	MaxScore      int
-	Confidence    float64
-	Price         float64
-	TargetPrice   float64
-	StopLoss      float64
-	Reasons       []string
-	Indicators    map[string]float64
-	GroupResults  []GroupEvaluationResult
-	GeneratedAt   time.Time
+	Rule         *models.SignalRule
+	StockCode    string
+	SignalType   string
+	Score        int
+	MaxScore     int
+	Confidence   float64
+	Price        float64
+	TargetPrice  float64
+	StopLoss     float64
+	Reasons      []string
+	Indicators   map[string]float64
+	GroupResults []GroupEvaluationResult
+	GeneratedAt  time.Time
 }
 
 // ConditionJSON represents a condition in JSON format
@@ -621,14 +621,14 @@ func (e *ConditionEvaluator) GetRuleStatistics(ruleID uint) (map[string]interfac
 	}
 
 	return map[string]interface{}{
-		"total_signals":   stats.TotalSignals,
-		"winning_trades":  stats.WinningTrades,
-		"losing_trades":   stats.TotalSignals - stats.WinningTrades,
-		"win_rate":        winRate,
-		"total_pnl":       stats.TotalPnL,
-		"avg_pnl":         stats.AvgPnL,
-		"max_gain":        stats.MaxGain,
-		"max_loss":        stats.MaxLoss,
+		"total_signals":    stats.TotalSignals,
+		"winning_trades":   stats.WinningTrades,
+		"losing_trades":    stats.TotalSignals - stats.WinningTrades,
+		"win_rate":         winRate,
+		"total_pnl":        stats.TotalPnL,
+		"avg_pnl":          stats.AvgPnL,
+		"max_gain":         stats.MaxGain,
+		"max_loss":         stats.MaxLoss,
 		"avg_holding_days": stats.AvgHoldDays,
 	}, nil
 }
