@@ -1,8 +1,8 @@
 # Build stage
 FROM golang:1.24-alpine AS builder
 
-# Install build dependencies
-RUN apk add --no-cache git
+# Install build dependencies including gcc for CGO (required for go-sqlite3)
+RUN apk add --no-cache git gcc musl-dev
 
 WORKDIR /app
 
@@ -15,17 +15,19 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application
-# Use -mod=mod to allow go to update go.mod if needed
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o main .
+# Build the application with CGO enabled for sqlite3 support
+RUN CGO_ENABLED=1 GOOS=linux go build -mod=mod -o main .
 
 # Final stage
 FROM alpine:latest
 
-# Install ca-certificates for HTTPS connections
+# Install ca-certificates for HTTPS connections and libc for CGO binaries
 RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
+
+# Create data directory for DuckDB/SQLite
+RUN mkdir -p /app/data
 
 # Copy binary from builder
 COPY --from=builder /app/main .
