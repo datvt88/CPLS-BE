@@ -16,11 +16,15 @@ import (
 
 // ExtendedStockIndicators holds all calculated technical indicators
 type ExtendedStockIndicators struct {
+	// Stock identifier
+	Code string `json:"code"` // Stock code/symbol
+
 	// Relative Strength (change percentage)
-	RS3D float64 `json:"rs_3d"` // 3 days change %
-	RS1M float64 `json:"rs_1m"` // 1 month (~22 days) change %
-	RS3M float64 `json:"rs_3m"` // 3 months (~66 days) change %
-	RS1Y float64 `json:"rs_1y"` // 1 year (~252 days) change %
+	RS3D       float64 `json:"rs_3d"`        // 3 days change %
+	RS3DChange float64 `json:"rs_3d_change"` // 3 days price change %
+	RS1M       float64 `json:"rs_1m"`        // 1 month (~22 days) change %
+	RS3M       float64 `json:"rs_3m"`        // 3 months (~66 days) change %
+	RS1Y       float64 `json:"rs_1y"`        // 1 year (~252 days) change %
 
 	// Relative Strength Ranks (1-100 percentile)
 	RS3DRank float64 `json:"rs_3d_rank"`
@@ -35,9 +39,9 @@ type ExtendedStockIndicators struct {
 	MACDHist   float64 `json:"macd_hist"`   // MACD Histogram
 
 	// Volume
-	AvgVol         float64 `json:"avg_vol"`           // 5-day average volume
-	AvgTradingVal  float64 `json:"avg_trading_val"`   // 5-day average trading value (volume * price)
-	VolRatio       float64 `json:"vol_ratio"`         // Current vol / Avg vol
+	AvgVol        float64 `json:"avg_vol"`         // 5-day average volume
+	AvgTradingVal float64 `json:"avg_trading_val"` // 5-day average trading value (volume * price)
+	VolRatio      float64 `json:"vol_ratio"`       // Current vol / Avg vol
 
 	// RSI
 	RSI float64 `json:"rsi"` // 14-day RSI
@@ -292,6 +296,7 @@ func CalculateIndicatorsForStock(priceFile *StockPriceFile) *ExtendedStockIndica
 	}
 
 	indicators := &ExtendedStockIndicators{
+		Code:         priceFile.Code,
 		CurrentPrice: prices[0].Close, // Display current actual price (not adjusted)
 		UpdatedAt:    time.Now().Format(time.RFC3339),
 	}
@@ -299,6 +304,7 @@ func CalculateIndicatorsForStock(priceFile *StockPriceFile) *ExtendedStockIndica
 	// Price changes (RS values)
 	indicators.PriceChange = CalculatePriceChange(closePrices, 1)
 	indicators.RS3D = CalculatePriceChange(closePrices, 3)
+	indicators.RS3DChange = indicators.RS3D                  // Store as RS3DChange for compatibility
 	indicators.RS1M = CalculatePriceChange(closePrices, 22)  // ~1 month
 	indicators.RS3M = CalculatePriceChange(closePrices, 66)  // ~3 months
 	indicators.RS1Y = CalculatePriceChange(closePrices, 252) // ~1 year
@@ -741,16 +747,16 @@ func (s *StockIndicatorService) GetStockIndicators(code string) (*ExtendedStockI
 // FilterStocksByIndicators filters stocks by indicator criteria
 type IndicatorFilter struct {
 	// RS Filters
-	RSAvgMin   float64 `json:"rs_avg_min"`
-	RSAvgMax   float64 `json:"rs_avg_max"`
-	RS3DMin    float64 `json:"rs_3d_min"`
-	RS3DMax    float64 `json:"rs_3d_max"`
-	RS1MMin    float64 `json:"rs_1m_min"`
-	RS1MMax    float64 `json:"rs_1m_max"`
-	RS3MMin    float64 `json:"rs_3m_min"`
-	RS3MMax    float64 `json:"rs_3m_max"`
-	RS1YMin    float64 `json:"rs_1y_min"`
-	RS1YMax    float64 `json:"rs_1y_max"`
+	RSAvgMin float64 `json:"rs_avg_min"`
+	RSAvgMax float64 `json:"rs_avg_max"`
+	RS3DMin  float64 `json:"rs_3d_min"`
+	RS3DMax  float64 `json:"rs_3d_max"`
+	RS1MMin  float64 `json:"rs_1m_min"`
+	RS1MMax  float64 `json:"rs_1m_max"`
+	RS3MMin  float64 `json:"rs_3m_min"`
+	RS3MMax  float64 `json:"rs_3m_max"`
+	RS1YMin  float64 `json:"rs_1y_min"`
+	RS1YMax  float64 `json:"rs_1y_max"`
 
 	// MACD Filters
 	MACDHistMin      *float64 `json:"macd_hist_min"`

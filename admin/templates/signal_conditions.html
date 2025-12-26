@@ -88,7 +88,7 @@
                                                         <code>{{ .CompareIndicator }}</code>
                                                         {{ else }}
                                                         {{ .Value }}
-                                                        {{ if and (ne .Value2.String "0") (eq .Operator.String "between") }} - {{ .Value2 }}{{ end }}
+                                                        {{ if eq (printf "%s" .Operator) "between" }} - {{ .Value2 }}{{ end }}
                                                         {{ end }}
                                                     </td>
                                                     <td>{{ .Weight }}</td>
