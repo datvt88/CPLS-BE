@@ -127,15 +127,6 @@ func main() {
 		services.GlobalRealtimeService.Shutdown()
 	}
 
-	// Close DuckDB connection
-	if services.GlobalDuckDB != nil {
-		if err := services.GlobalDuckDB.Close(); err != nil {
-			log.Printf("Error closing DuckDB: %v", err)
-		} else {
-			log.Println("DuckDB closed successfully")
-		}
-	}
-
 	// Close MongoDB connection
 	if services.GlobalMongoClient != nil {
 		if err := services.GlobalMongoClient.Close(); err != nil {
@@ -154,13 +145,6 @@ func main() {
 // These must complete quickly so the server can start listening on the port
 func initFastLocalServices() {
 	log.Println("Initializing fast local services...")
-
-	// Initialize DuckDB for local data storage (fast, local file)
-	if err := services.InitDuckDB(); err != nil {
-		log.Printf("Warning: Failed to initialize DuckDB: %v", err)
-	} else {
-		log.Println("DuckDB initialized successfully")
-	}
 
 	// Initialize Stock Scheduler
 	if err := services.InitStockScheduler(); err != nil {

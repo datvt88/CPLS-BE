@@ -117,9 +117,9 @@ type fetchJob struct {
 
 // fetchResult represents the result of a fetch job
 type fetchResult struct {
-	code    string
-	prices  []StockPriceData
-	err     error
+	code   string
+	prices []StockPriceData
+	err    error
 }
 
 // StockPriceService handles stock price fetching and storage
@@ -132,8 +132,8 @@ type StockPriceService struct {
 	httpClient *http.Client
 
 	// Atomic counters for concurrent updates
-	successCount int64
-	failedCount  int64
+	successCount   int64
+	failedCount    int64
 	processedCount int64
 }
 
@@ -161,9 +161,9 @@ func InitPriceService() error {
 	if err := GlobalPriceService.LoadConfig(); err != nil {
 		log.Printf("No price sync config found, using defaults: %v", err)
 		GlobalPriceService.config = PriceSyncConfig{
-			DelayMS:      100,                // Reduced delay for concurrent
+			DelayMS:      100, // Reduced delay for concurrent
 			BatchSize:    50,
-			BatchPauseMS: 2000,               // Reduced pause
+			BatchPauseMS: 2000, // Reduced pause
 			PriceSize:    DefaultPriceSize,
 			WorkerCount:  DefaultWorkerCount,
 		}
@@ -294,7 +294,7 @@ func (s *StockPriceService) FetchStockPrice(code string, size int) (*VNDirectPri
 	return &priceResp, nil
 }
 
-// SaveStockPrice saves price data to file, DuckDB, and MongoDB
+// SaveStockPrice saves price data to file and MongoDB
 func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData) error {
 	priceFile := StockPriceFile{
 		Code:        code,
@@ -313,13 +313,6 @@ func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData)
 		return fmt.Errorf("failed to write price file: %w", err)
 	}
 
-	// Save to DuckDB
-	if GlobalDuckDB != nil {
-		if err := GlobalDuckDB.SavePriceHistory(code, prices); err != nil {
-			log.Printf("Warning: failed to save %s prices to DuckDB: %v", code, err)
-		}
-	}
-
 	// Save to MongoDB Atlas (async to not block)
 	go func() {
 		if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
@@ -332,7 +325,7 @@ func (s *StockPriceService) SaveStockPrice(code string, prices []StockPriceData)
 	return nil
 }
 
-// LoadStockPrice loads price data from file, DuckDB, or MongoDB Atlas
+// LoadStockPrice loads price data from file or MongoDB Atlas
 func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error) {
 	filePath := filepath.Join(StockPriceDir, fmt.Sprintf("%s.json", code))
 
@@ -345,33 +338,13 @@ func (s *StockPriceService) LoadStockPrice(code string) (*StockPriceFile, error)
 		}
 	}
 
-	// Try DuckDB (local database)
-	if GlobalDuckDB != nil {
-		prices, err := GlobalDuckDB.LoadPriceHistory(code, 270)
-		if err == nil && len(prices) > 0 {
-			priceFile := &StockPriceFile{
-				Code:        code,
-				LastUpdated: time.Now().Format(time.RFC3339),
-				DataCount:   len(prices),
-				Prices:      prices,
-			}
-			if cacheData, err := json.MarshalIndent(priceFile, "", "  "); err == nil {
-				os.WriteFile(filePath, cacheData, 0644)
-			}
-			return priceFile, nil
-		}
-	}
-
 	// Fallback to MongoDB Atlas (persists across deploys)
 	if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
 		priceFile, err := GlobalMongoClient.LoadPriceData(code)
 		if err == nil && priceFile != nil && len(priceFile.Prices) > 0 {
-			// Cache to local file and DuckDB for faster future reads
+			// Cache to local file for faster future reads
 			if cacheData, err := json.MarshalIndent(priceFile, "", "  "); err == nil {
 				os.WriteFile(filePath, cacheData, 0644)
-			}
-			if GlobalDuckDB != nil {
-				GlobalDuckDB.SavePriceHistory(code, priceFile.Prices)
 			}
 			return priceFile, nil
 		}
@@ -735,11 +708,6 @@ func (s *StockPriceService) RestoreFromMongoDB() error {
 		filePath := filepath.Join(StockPriceDir, fmt.Sprintf("%s.json", code))
 		if err := os.WriteFile(filePath, data, 0644); err != nil {
 			continue
-		}
-
-		// Also save to DuckDB if available
-		if GlobalDuckDB != nil {
-			GlobalDuckDB.SavePriceHistory(code, priceFile.Prices)
 		}
 
 		savedCount++

@@ -2,13 +2,13 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -118,13 +118,15 @@ func FetchStocksFromVNDirect() ([]VNDirectStock, error) {
 
 	log.Printf("VNDirect API fetched %d stocks", len(response.Data))
 
-	// Save to local file and MongoDB for future offline use
+	// Save to local file and MongoDB for persistence
 	go func() {
 		SaveStocksToFile(response.Data)
-		// Also save to MongoDB Atlas for persistence across deploys
+		// Save to MongoDB Atlas for persistence across deploys
 		if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
 			if err := GlobalMongoClient.SaveStockList(response.Data); err != nil {
 				log.Printf("Warning: failed to save stock list to MongoDB: %v", err)
+			} else {
+				log.Println("Stock list saved to MongoDB Atlas")
 			}
 		}
 	}()
@@ -200,10 +202,6 @@ func ImportStocksFromJSON(jsonData []byte) (*StockSyncResult, error) {
 		SyncedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if GlobalDuckDB == nil {
-		return nil, errors.New("DuckDB not initialized")
-	}
-
 	var stocks []VNDirectStock
 	if err := json.Unmarshal(jsonData, &stocks); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
@@ -211,55 +209,32 @@ func ImportStocksFromJSON(jsonData []byte) (*StockSyncResult, error) {
 
 	result.TotalFetched = len(stocks)
 
-	// Upsert each stock to DuckDB
-	for _, stock := range stocks {
-		duckStock := &DuckDBStock{
-			Code:           strings.ToUpper(stock.Code),
-			Type:           stock.Type,
-			Floor:          stock.Floor,
-			ISIN:           stock.ISIN,
-			Status:         stock.Status,
-			CompanyName:    stock.CompanyName,
-			CompanyNameEng: stock.CompanyNameEng,
-			ShortName:      stock.ShortName,
-			ShortNameEng:   stock.ShortNameEng,
-			ListedDate:     stock.ListedDate,
-			DelistedDate:   stock.DelistedDate,
-			CompanyID:      stock.CompanyID,
-			TaxCode:        stock.TaxCode,
-			IsActive:       stock.Status == "listed",
-		}
-
-		if err := GlobalDuckDB.UpsertStock(duckStock); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("failed to upsert %s: %v", stock.Code, err))
-			continue
-		}
-		result.Created++
+	// Save to local file
+	if err := SaveStocksToFile(stocks); err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("failed to save to local file: %v", err))
 	}
 
-	// Save to local file for future use
-	SaveStocksToFile(stocks)
-
-	// Save sync history
-	errStr := ""
-	if len(result.Errors) > 0 {
-		errStr = strings.Join(result.Errors, "; ")
+	// Save to MongoDB Atlas
+	if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
+		if err := GlobalMongoClient.SaveStockList(stocks); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("failed to save to MongoDB: %v", err))
+		} else {
+			result.Created = len(stocks)
+			log.Println("Stock list saved to MongoDB Atlas")
+		}
+	} else {
+		result.Errors = append(result.Errors, "MongoDB not configured")
 	}
-	GlobalDuckDB.SaveSyncHistory("stocks_import", result.TotalFetched, result.Created, 0, errStr)
 
 	log.Printf("Stock import completed: imported=%d, errors=%d", result.TotalFetched, len(result.Errors))
 	return result, nil
 }
 
-// SyncStocksFromVNDirectToDuckDB syncs stocks from VNDirect API to DuckDB
-func SyncStocksFromVNDirectToDuckDB() (*StockSyncResult, error) {
+// SyncStocksFromVNDirect syncs stocks from VNDirect API to MongoDB
+func SyncStocksFromVNDirect() (*StockSyncResult, error) {
 	result := &StockSyncResult{
 		Errors:   []string{},
 		SyncedAt: time.Now().UTC().Format(time.RFC3339),
-	}
-
-	if GlobalDuckDB == nil {
-		return nil, errors.New("DuckDB not initialized")
 	}
 
 	// Fetch stocks from VNDirect
@@ -270,71 +245,38 @@ func SyncStocksFromVNDirectToDuckDB() (*StockSyncResult, error) {
 
 	result.TotalFetched = len(stocks)
 
-	// Get existing count
-	existingCount, _ := GlobalDuckDB.GetStockCount()
-
-	// Upsert each stock to DuckDB
-	for _, stock := range stocks {
-		duckStock := &DuckDBStock{
-			Code:           strings.ToUpper(stock.Code),
-			Type:           stock.Type,
-			Floor:          stock.Floor,
-			ISIN:           stock.ISIN,
-			Status:         stock.Status,
-			CompanyName:    stock.CompanyName,
-			CompanyNameEng: stock.CompanyNameEng,
-			ShortName:      stock.ShortName,
-			ShortNameEng:   stock.ShortNameEng,
-			ListedDate:     stock.ListedDate,
-			DelistedDate:   stock.DelistedDate,
-			CompanyID:      stock.CompanyID,
-			TaxCode:        stock.TaxCode,
-			IsActive:       stock.Status == "listed",
-		}
-
-		if err := GlobalDuckDB.UpsertStock(duckStock); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("failed to upsert %s: %v", stock.Code, err))
-			continue
-		}
-
-		// Count created vs updated
-		if existingCount == 0 {
-			result.Created++
+	// Save to MongoDB Atlas
+	if GlobalMongoClient != nil && GlobalMongoClient.IsConfigured() {
+		if err := GlobalMongoClient.SaveStockList(stocks); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("failed to save to MongoDB: %v", err))
 		} else {
-			result.Updated++
+			result.Created = len(stocks)
+			log.Println("Stock list synced to MongoDB Atlas")
 		}
+	} else {
+		result.Errors = append(result.Errors, "MongoDB not configured")
 	}
 
-	// Save sync history
-	errStr := ""
-	if len(result.Errors) > 0 {
-		errStr = strings.Join(result.Errors, "; ")
-	}
-	GlobalDuckDB.SaveSyncHistory("stocks", result.TotalFetched, result.Created, result.Updated, errStr)
-
-	log.Printf("Stock sync completed: fetched=%d, created=%d, updated=%d, errors=%d",
-		result.TotalFetched, result.Created, result.Updated, len(result.Errors))
+	log.Printf("Stock sync completed: fetched=%d, created=%d, errors=%d",
+		result.TotalFetched, result.Created, len(result.Errors))
 
 	return result, nil
 }
 
 // === Wrapper methods for SupabaseDBClient compatibility ===
 
-// GetStocks fetches stocks from DuckDB (wrapper for compatibility)
+// GetStocks fetches stocks with pagination (using local file + MongoDB)
 func (c *SupabaseDBClient) GetStocks(page, pageSize int, search, floor, sortBy, sortOrder string) (*StockListResponse, error) {
-	if GlobalDuckDB == nil {
+	// Load all stocks from fallback chain
+	vnStocks, err := LoadStocksWithFallback()
+	if err != nil {
 		return &StockListResponse{Stocks: []Stock{}, Total: 0, Page: page, PageSize: pageSize, TotalPages: 0}, nil
 	}
 
-	stocks, total, err := GlobalDuckDB.GetStocksPaginated(page, pageSize, search, floor, sortBy, sortOrder)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert DuckDBStock to Stock
-	result := make([]Stock, len(stocks))
-	for i, s := range stocks {
-		result[i] = Stock{
+	// Convert to Stock and apply filters
+	var filteredStocks []Stock
+	for _, s := range vnStocks {
+		stock := Stock{
 			ID:             s.Code,
 			Code:           s.Code,
 			Type:           s.Type,
@@ -349,12 +291,63 @@ func (c *SupabaseDBClient) GetStocks(page, pageSize int, search, floor, sortBy, 
 			DelistedDate:   s.DelistedDate,
 			CompanyID:      s.CompanyID,
 			TaxCode:        s.TaxCode,
-			IsActive:       s.IsActive,
-			CreatedAt:      s.CreatedAt,
-			UpdatedAt:      s.UpdatedAt,
-			LastSyncAt:     s.LastSyncAt,
+			IsActive:       s.Status == "listed",
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
 		}
+
+		// Apply search filter
+		if search != "" {
+			searchLower := strings.ToLower(search)
+			if !strings.Contains(strings.ToLower(stock.Code), searchLower) &&
+				!strings.Contains(strings.ToLower(stock.CompanyName), searchLower) &&
+				!strings.Contains(strings.ToLower(stock.ShortName), searchLower) {
+				continue
+			}
+		}
+
+		// Apply floor filter
+		if floor != "" && stock.Floor != floor {
+			continue
+		}
+
+		filteredStocks = append(filteredStocks, stock)
 	}
+
+	// Sort
+	if sortBy != "" {
+		sort.Slice(filteredStocks, func(i, j int) bool {
+			var less bool
+			switch sortBy {
+			case "code":
+				less = filteredStocks[i].Code < filteredStocks[j].Code
+			case "company_name":
+				less = filteredStocks[i].CompanyName < filteredStocks[j].CompanyName
+			case "floor":
+				less = filteredStocks[i].Floor < filteredStocks[j].Floor
+			default:
+				less = filteredStocks[i].Code < filteredStocks[j].Code
+			}
+			if sortOrder == "desc" {
+				return !less
+			}
+			return less
+		})
+	}
+
+	total := int64(len(filteredStocks))
+
+	// Paginate
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > len(filteredStocks) {
+		start = len(filteredStocks)
+	}
+	if end > len(filteredStocks) {
+		end = len(filteredStocks)
+	}
+
+	paginatedStocks := filteredStocks[start:end]
 
 	totalPages := int(total) / pageSize
 	if int(total)%pageSize > 0 {
@@ -362,7 +355,7 @@ func (c *SupabaseDBClient) GetStocks(page, pageSize int, search, floor, sortBy, 
 	}
 
 	return &StockListResponse{
-		Stocks:     result,
+		Stocks:     paginatedStocks,
 		Total:      total,
 		Page:       page,
 		PageSize:   pageSize,
@@ -370,86 +363,86 @@ func (c *SupabaseDBClient) GetStocks(page, pageSize int, search, floor, sortBy, 
 	}, nil
 }
 
-// GetStockByCode fetches a single stock by code from DuckDB
+// GetStockByCode fetches a single stock by code
 func (c *SupabaseDBClient) GetStockByCode(code string) (*Stock, error) {
-	if GlobalDuckDB == nil {
-		return nil, errors.New("DuckDB not initialized")
-	}
-
-	s, err := GlobalDuckDB.GetStockByCode(code)
+	stocks, err := LoadStocksWithFallback()
 	if err != nil {
 		return nil, err
 	}
 
-	return &Stock{
-		ID:             s.Code,
-		Code:           s.Code,
-		Type:           s.Type,
-		Floor:          s.Floor,
-		ISIN:           s.ISIN,
-		Status:         s.Status,
-		CompanyName:    s.CompanyName,
-		CompanyNameEng: s.CompanyNameEng,
-		ShortName:      s.ShortName,
-		ShortNameEng:   s.ShortNameEng,
-		ListedDate:     s.ListedDate,
-		DelistedDate:   s.DelistedDate,
-		CompanyID:      s.CompanyID,
-		TaxCode:        s.TaxCode,
-		IsActive:       s.IsActive,
-		CreatedAt:      s.CreatedAt,
-		UpdatedAt:      s.UpdatedAt,
-		LastSyncAt:     s.LastSyncAt,
-	}, nil
+	code = strings.ToUpper(code)
+	for _, s := range stocks {
+		if strings.ToUpper(s.Code) == code {
+			return &Stock{
+				ID:             s.Code,
+				Code:           s.Code,
+				Type:           s.Type,
+				Floor:          s.Floor,
+				ISIN:           s.ISIN,
+				Status:         s.Status,
+				CompanyName:    s.CompanyName,
+				CompanyNameEng: s.CompanyNameEng,
+				ShortName:      s.ShortName,
+				ShortNameEng:   s.ShortNameEng,
+				ListedDate:     s.ListedDate,
+				DelistedDate:   s.DelistedDate,
+				CompanyID:      s.CompanyID,
+				TaxCode:        s.TaxCode,
+				IsActive:       s.Status == "listed",
+				CreatedAt:      time.Now(),
+				UpdatedAt:      time.Now(),
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("stock %s not found", code)
 }
 
-// GetStockCount returns the total count of stocks from DuckDB
+// GetStockCount returns the total count of stocks
 func (c *SupabaseDBClient) GetStockCount() (int64, error) {
-	if GlobalDuckDB == nil {
+	stocks, err := LoadStocksWithFallback()
+	if err != nil {
 		return 0, nil
 	}
-	return GlobalDuckDB.GetStockCount()
+	return int64(len(stocks)), nil
 }
 
-// GetStockStats returns statistics about stocks from DuckDB
+// GetStockStats returns statistics about stocks
 func (c *SupabaseDBClient) GetStockStats() (map[string]interface{}, error) {
-	if GlobalDuckDB == nil {
+	stocks, err := LoadStocksWithFallback()
+	if err != nil {
 		return map[string]interface{}{"total": 0, "by_floor": map[string]int64{}}, nil
 	}
 
-	total, err := GlobalDuckDB.GetStockCount()
-	if err != nil {
-		return nil, err
-	}
-
-	byFloor, err := GlobalDuckDB.GetStockCountByFloor()
-	if err != nil {
-		return nil, err
+	byFloor := make(map[string]int64)
+	for _, s := range stocks {
+		byFloor[s.Floor]++
 	}
 
 	return map[string]interface{}{
-		"total":    total,
+		"total":    int64(len(stocks)),
 		"by_floor": byFloor,
 	}, nil
 }
 
-// SyncStocksFromVNDirect syncs stocks from VNDirect API to DuckDB
-func (c *SupabaseDBClient) SyncStocksFromVNDirect() (*StockSyncResult, error) {
-	return SyncStocksFromVNDirectToDuckDB()
+// SyncStocksFromVNDirectWrapper syncs stocks from VNDirect API to MongoDB
+func (c *SupabaseDBClient) SyncStocksFromVNDirectWrapper() (*StockSyncResult, error) {
+	return SyncStocksFromVNDirect()
 }
 
-// DeleteStock deletes a stock by code from DuckDB
+// DeleteStock removes a stock (not supported with file-based storage)
 func (c *SupabaseDBClient) DeleteStock(code string) error {
-	if GlobalDuckDB == nil {
-		return errors.New("DuckDB not initialized")
-	}
-	return GlobalDuckDB.DeleteStock(code)
+	log.Printf("DeleteStock called for %s - operation not supported in file-based storage", code)
+	return nil
 }
 
-// GetLastSyncTime returns the last sync time for stocks from DuckDB
+// GetLastSyncTime returns the last sync time for stocks
 func (c *SupabaseDBClient) GetLastSyncTime() (*time.Time, error) {
-	if GlobalDuckDB == nil {
+	// Check file modification time
+	info, err := os.Stat(StockListFile)
+	if err != nil {
 		return nil, nil
 	}
-	return GlobalDuckDB.GetLastSyncTime("stocks")
+	modTime := info.ModTime()
+	return &modTime, nil
 }
