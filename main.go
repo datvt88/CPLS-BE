@@ -18,6 +18,7 @@ import (
 	"go_backend_project/routes"
 	"go_backend_project/scheduler"
 	"go_backend_project/services"
+	"go_backend_project/services/signals"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -187,6 +188,13 @@ func initFastLocalServices() {
 		log.Printf("Warning: Failed to initialize Realtime Price Service: %v", err)
 	} else {
 		log.Println("Realtime Price Service initialized successfully")
+	}
+
+	// Initialize Signal Service for algorithmic trading
+	if err := signals.InitSignalService(); err != nil {
+		log.Printf("Warning: Failed to initialize Signal Service: %v", err)
+	} else {
+		log.Println("Signal Service initialized successfully")
 	}
 
 	log.Println("Fast local services initialized")

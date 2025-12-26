@@ -197,11 +197,8 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 			backtests.POST("", tradingController.RunBacktest)
 		}
 
-		// Signal routes
-		signals := api.Group("/signals")
-		{
-			signals.GET("", tradingController.GetSignals)
-		}
+		// Signal routes - using new SignalController with algorithmic trading strategies
+		controllers.RegisterSignalRoutes(api)
 
 		// Trading routes
 		trading := api.Group("/trading")
