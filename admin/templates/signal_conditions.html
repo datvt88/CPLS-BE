@@ -1,0 +1,948 @@
+{{ define "content" }}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-gear-wide-connected"></i> Signal Conditions Management</h5>
+                <div class="btn-group">
+                    <button class="btn btn-light btn-sm" onclick="showCreateGroupModal()">
+                        <i class="bi bi-plus-circle"></i> New Condition Group
+                    </button>
+                    <button class="btn btn-success btn-sm" onclick="showCreateRuleModal()">
+                        <i class="bi bi-lightning"></i> New Signal Rule
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Tabs -->
+                <ul class="nav nav-tabs mb-3" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#groups-tab">
+                            <i class="bi bi-collection"></i> Condition Groups
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#rules-tab">
+                            <i class="bi bi-lightning-charge"></i> Signal Rules
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#templates-tab">
+                            <i class="bi bi-file-earmark-code"></i> Templates
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#test-tab">
+                            <i class="bi bi-bug"></i> Test & Debug
+                        </a>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Condition Groups Tab -->
+                    <div class="tab-pane fade show active" id="groups-tab">
+                        <div class="row">
+                            {{ range .groups }}
+                            <div class="col-md-6 mb-3">
+                                <div class="card {{ if not .IsActive }}bg-light{{ end }}">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <strong>{{ .Name }}</strong>
+                                            {{ if .SignalType }}
+                                            <span class="badge bg-{{ if eq .SignalType "BUY" }}success{{ else if eq .SignalType "SELL" }}danger{{ else }}secondary{{ end }} ms-2">{{ .SignalType }}</span>
+                                            {{ end }}
+                                            {{ if not .IsActive }}<span class="badge bg-secondary">Inactive</span>{{ end }}
+                                        </div>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-primary" onclick="showAddConditionModal({{ .ID }})">
+                                                <i class="bi bi-plus"></i>
+                                            </button>
+                                            <button class="btn btn-outline-secondary" onclick="editGroup({{ .ID }})">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger" onclick="deleteGroup({{ .ID }})">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="card-body p-2">
+                                        <small class="text-muted d-block mb-2">{{ .Description }}</small>
+                                        <table class="table table-sm table-bordered mb-0">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Indicator</th>
+                                                    <th>Operator</th>
+                                                    <th>Value</th>
+                                                    <th>Weight</th>
+                                                    <th>Req</th>
+                                                    <th></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {{ range .Conditions }}
+                                                <tr>
+                                                    <td><code>{{ .Indicator }}</code></td>
+                                                    <td>{{ .Operator }}</td>
+                                                    <td>
+                                                        {{ if .CompareIndicator }}
+                                                        <code>{{ .CompareIndicator }}</code>
+                                                        {{ else }}
+                                                        {{ .Value }}
+                                                        {{ if and (ne .Value2.String "0") (eq .Operator.String "between") }} - {{ .Value2 }}{{ end }}
+                                                        {{ end }}
+                                                    </td>
+                                                    <td>{{ .Weight }}</td>
+                                                    <td>{{ if .IsRequired }}<i class="bi bi-check-circle-fill text-success"></i>{{ else }}<i class="bi bi-circle text-muted"></i>{{ end }}</td>
+                                                    <td>
+                                                        <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteCondition({{ .ID }})">
+                                                            <i class="bi bi-x"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                                {{ else }}
+                                                <tr><td colspan="6" class="text-center text-muted">No conditions</td></tr>
+                                                {{ end }}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                            {{ else }}
+                            <div class="col-12">
+                                <div class="alert alert-info">No condition groups created yet. Click "New Condition Group" to get started.</div>
+                            </div>
+                            {{ end }}
+                        </div>
+                    </div>
+
+                    <!-- Signal Rules Tab -->
+                    <div class="tab-pane fade" id="rules-tab">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Signal Type</th>
+                                        <th>Strategy</th>
+                                        <th>Min Score</th>
+                                        <th>Target %</th>
+                                        <th>Stop Loss %</th>
+                                        <th>Priority</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{ range .rules }}
+                                    <tr>
+                                        <td>
+                                            <strong>{{ .Name }}</strong>
+                                            <br><small class="text-muted">{{ .Description }}</small>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-{{ if eq .SignalType "BUY" }}success{{ else if eq .SignalType "STRONG_BUY" }}success{{ else if eq .SignalType "SELL" }}danger{{ else if eq .SignalType "STRONG_SELL" }}danger{{ else }}warning{{ end }}">
+                                                {{ .SignalType }}
+                                            </span>
+                                        </td>
+                                        <td>{{ .StrategyType }}</td>
+                                        <td>{{ .MinScore }}%</td>
+                                        <td class="text-success">+{{ .TargetPercent }}%</td>
+                                        <td class="text-danger">-{{ .StopLossPercent }}%</td>
+                                        <td>{{ .Priority }}</td>
+                                        <td>
+                                            {{ if .IsActive }}
+                                            <span class="badge bg-success">Active</span>
+                                            {{ else }}
+                                            <span class="badge bg-secondary">Inactive</span>
+                                            {{ end }}
+                                        </td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm">
+                                                <button class="btn btn-outline-info" onclick="testRule({{ .ID }})" title="Test Rule">
+                                                    <i class="bi bi-play"></i>
+                                                </button>
+                                                <button class="btn btn-outline-secondary" onclick="editRule({{ .ID }})" title="Edit">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <button class="btn btn-outline-danger" onclick="deleteRule({{ .ID }})" title="Delete">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {{ else }}
+                                    <tr>
+                                        <td colspan="9" class="text-center text-muted">No signal rules created yet.</td>
+                                    </tr>
+                                    {{ end }}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Templates Tab -->
+                    <div class="tab-pane fade" id="templates-tab">
+                        <div class="row">
+                            {{ range .templates }}
+                            <div class="col-md-4 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-header">
+                                        <strong>{{ .Name }}</strong>
+                                        <span class="badge bg-info float-end">{{ .Category }}</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="small text-muted">{{ .Description }}</p>
+                                        <div class="d-grid gap-2">
+                                            <button class="btn btn-sm btn-primary" onclick="testTemplate({{ .ID }})">
+                                                <i class="bi bi-search"></i> Screen Stocks
+                                            </button>
+                                            {{ if not .IsBuiltIn }}
+                                            <button class="btn btn-sm btn-outline-danger" onclick="deleteTemplate({{ .ID }})">
+                                                <i class="bi bi-trash"></i> Delete
+                                            </button>
+                                            {{ end }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {{ else }}
+                            <div class="col-12">
+                                <div class="alert alert-info">No templates available.</div>
+                            </div>
+                            {{ end }}
+                        </div>
+                    </div>
+
+                    <!-- Test & Debug Tab -->
+                    <div class="tab-pane fade" id="test-tab">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-bug"></i> Test Conditions on Stock
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-3">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Stock Code</label>
+                                        <input type="text" class="form-control" id="test_stock" placeholder="e.g., VNM">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Condition Group</label>
+                                        <select class="form-select" id="test_group">
+                                            <option value="">-- Select Group --</option>
+                                            {{ range .groups }}
+                                            <option value="{{ .ID }}">{{ .Name }}</option>
+                                            {{ end }}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Signal Rule</label>
+                                        <select class="form-select" id="test_rule">
+                                            <option value="">-- Select Rule --</option>
+                                            {{ range .rules }}
+                                            <option value="{{ .ID }}">{{ .Name }}</option>
+                                            {{ end }}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3 d-flex align-items-end">
+                                        <button class="btn btn-primary w-100" onclick="testStockConditions()">
+                                            <i class="bi bi-play-circle"></i> Test
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="test_results" class="mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Rule Test Results Modal -->
+<div class="modal fade" id="testResultsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-list-check"></i> Test Results</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="testResultsContent"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Condition Group Modal -->
+<div class="modal fade" id="createGroupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-collection"></i> Create Condition Group</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createGroupForm">
+                    <div class="mb-3">
+                        <label class="form-label">Name *</label>
+                        <input type="text" class="form-control" name="name" required placeholder="e.g., RSI Oversold">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" name="description" rows="2" placeholder="Description of this condition group"></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Signal Type</label>
+                                <select class="form-select" name="signal_type">
+                                    <option value="">-- Select --</option>
+                                    <option value="BUY">BUY</option>
+                                    <option value="STRONG_BUY">STRONG BUY</option>
+                                    <option value="SELL">SELL</option>
+                                    <option value="STRONG_SELL">STRONG SELL</option>
+                                    <option value="ALERT">ALERT</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Priority</label>
+                                <input type="number" class="form-control" name="priority" value="0">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="createGroup()">Create</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Condition Modal -->
+<div class="modal fade" id="addConditionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Add Condition</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addConditionForm">
+                    <input type="hidden" name="group_id" id="condition_group_id">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">Indicator *</label>
+                                <select class="form-select" name="indicator" id="cond_indicator" required onchange="updateConditionUI()">
+                                    <optgroup label="Oscillators">
+                                        <option value="RSI">RSI (14)</option>
+                                        <option value="MACD">MACD Line</option>
+                                        <option value="MACD_SIGNAL">MACD Signal</option>
+                                        <option value="MACD_HISTOGRAM">MACD Histogram</option>
+                                    </optgroup>
+                                    <optgroup label="Moving Averages">
+                                        <option value="MA10">MA 10</option>
+                                        <option value="MA30">MA 30</option>
+                                        <option value="MA50">MA 50</option>
+                                        <option value="MA200">MA 200</option>
+                                    </optgroup>
+                                    <optgroup label="Relative Strength">
+                                        <option value="RS_3D">RS 3 Day</option>
+                                        <option value="RS_1M">RS 1 Month</option>
+                                        <option value="RS_3M">RS 3 Month</option>
+                                        <option value="RS_1Y">RS 1 Year</option>
+                                        <option value="RS_AVG">RS Average</option>
+                                    </optgroup>
+                                    <optgroup label="Volume">
+                                        <option value="VOLUME">Volume</option>
+                                        <option value="VOL_RATIO">Volume Ratio</option>
+                                        <option value="TRADING_VALUE">Trading Value (Ty)</option>
+                                    </optgroup>
+                                    <optgroup label="Price">
+                                        <option value="PRICE">Price</option>
+                                        <option value="PRICE_CHANGE">Price Change %</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">Operator *</label>
+                                <select class="form-select" name="operator" id="cond_operator" required onchange="updateConditionUI()">
+                                    <option value="gt">> (Greater Than)</option>
+                                    <option value="gte">>= (Greater or Equal)</option>
+                                    <option value="lt">< (Less Than)</option>
+                                    <option value="lte"><= (Less or Equal)</option>
+                                    <option value="eq">= (Equal)</option>
+                                    <option value="neq">!= (Not Equal)</option>
+                                    <option value="between">Between</option>
+                                    <option value="cross_above">Crosses Above</option>
+                                    <option value="cross_below">Crosses Below</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3" id="value_field">
+                                <label class="form-label">Value</label>
+                                <input type="number" class="form-control" name="value" step="0.01" id="cond_value">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row" id="value2_row" style="display: none;">
+                        <div class="col-md-4 offset-md-8">
+                            <div class="mb-3">
+                                <label class="form-label">Value 2 (Max)</label>
+                                <input type="number" class="form-control" name="value2" step="0.01" id="cond_value2">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row" id="compare_row" style="display: none;">
+                        <div class="col-md-4 offset-md-8">
+                            <div class="mb-3">
+                                <label class="form-label">Compare With Indicator</label>
+                                <select class="form-select" name="compare_indicator" id="cond_compare">
+                                    <option value="">-- Select --</option>
+                                    <option value="MA10">MA 10</option>
+                                    <option value="MA30">MA 30</option>
+                                    <option value="MA50">MA 50</option>
+                                    <option value="MA200">MA 200</option>
+                                    <option value="PRICE">Price</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">Weight</label>
+                                <input type="number" class="form-control" name="weight" value="1" min="1" max="100">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">Logic</label>
+                                <select class="form-select" name="logical_operator">
+                                    <option value="AND">AND</option>
+                                    <option value="OR">OR</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">Order</label>
+                                <input type="number" class="form-control" name="order_index" value="0">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3 pt-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" name="is_required" id="cond_required">
+                                    <label class="form-check-label" for="cond_required">Required</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description (Optional)</label>
+                        <input type="text" class="form-control" name="description" placeholder="Describe this condition">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="addCondition()">Add Condition</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Signal Rule Modal -->
+<div class="modal fade" id="createRuleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-lightning"></i> Create Signal Rule</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createRuleForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Name *</label>
+                                <input type="text" class="form-control" name="name" required placeholder="e.g., Momentum Buy Signal">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Signal Type *</label>
+                                <select class="form-select" name="signal_type" required>
+                                    <option value="BUY">BUY</option>
+                                    <option value="STRONG_BUY">STRONG BUY</option>
+                                    <option value="SELL">SELL</option>
+                                    <option value="STRONG_SELL">STRONG SELL</option>
+                                    <option value="ALERT">ALERT</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" name="description" rows="2"></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">Strategy Type</label>
+                                <select class="form-select" name="strategy_type">
+                                    <option value="">-- Select --</option>
+                                    <option value="momentum">Momentum</option>
+                                    <option value="trend">Trend Following</option>
+                                    <option value="reversal">Mean Reversion</option>
+                                    <option value="breakout">Breakout</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">Min Score %</label>
+                                <input type="number" class="form-control" name="min_score" value="60" min="0" max="100">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">Target %</label>
+                                <input type="number" class="form-control" name="target_percent" value="10" step="0.5">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">Stop Loss %</label>
+                                <input type="number" class="form-control" name="stop_loss_percent" value="5" step="0.5">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Condition Groups</label>
+                        <div class="border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                            {{ range .groups }}
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" name="group_ids" value="{{ .ID }}" id="rule_group_{{ .ID }}">
+                                <label class="form-check-label" for="rule_group_{{ .ID }}">{{ .Name }} <small class="text-muted">({{ len .Conditions }} conditions)</small></label>
+                            </div>
+                            {{ else }}
+                            <p class="text-muted mb-0">No condition groups available. Create some first.</p>
+                            {{ end }}
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Priority</label>
+                        <input type="number" class="form-control" name="priority" value="0">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="createRule()">Create Rule</button>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+const API_BASE = '/admin';
+
+// Modal instances
+let createGroupModal, addConditionModal, createRuleModal, testResultsModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    createGroupModal = new bootstrap.Modal(document.getElementById('createGroupModal'));
+    addConditionModal = new bootstrap.Modal(document.getElementById('addConditionModal'));
+    createRuleModal = new bootstrap.Modal(document.getElementById('createRuleModal'));
+    testResultsModal = new bootstrap.Modal(document.getElementById('testResultsModal'));
+});
+
+// Show modals
+function showCreateGroupModal() {
+    document.getElementById('createGroupForm').reset();
+    createGroupModal.show();
+}
+
+function showAddConditionModal(groupId) {
+    document.getElementById('addConditionForm').reset();
+    document.getElementById('condition_group_id').value = groupId;
+    updateConditionUI();
+    addConditionModal.show();
+}
+
+function showCreateRuleModal() {
+    document.getElementById('createRuleForm').reset();
+    createRuleModal.show();
+}
+
+// Update condition form UI based on operator
+function updateConditionUI() {
+    const operator = document.getElementById('cond_operator').value;
+    const indicator = document.getElementById('cond_indicator').value;
+
+    // Show/hide value2 for between operator
+    const value2Row = document.getElementById('value2_row');
+    value2Row.style.display = operator === 'between' ? 'flex' : 'none';
+
+    // Show compare indicator for cross operators or MA comparisons
+    const compareRow = document.getElementById('compare_row');
+    const needsCompare = operator === 'cross_above' || operator === 'cross_below' ||
+                        (indicator.startsWith('MA') && (operator === 'gt' || operator === 'lt'));
+    compareRow.style.display = needsCompare ? 'flex' : 'none';
+}
+
+// Create condition group
+async function createGroup() {
+    const form = document.getElementById('createGroupForm');
+    const data = {
+        name: form.name.value,
+        description: form.description.value,
+        signal_type: form.signal_type.value,
+        priority: parseInt(form.priority.value) || 0
+    };
+
+    try {
+        const response = await fetch(`${API_BASE}/signal-conditions/groups`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        createGroupModal.hide();
+        location.reload();
+    } catch (error) {
+        alert('Failed to create group: ' + error.message);
+    }
+}
+
+// Add condition to group
+async function addCondition() {
+    const form = document.getElementById('addConditionForm');
+    const data = {
+        group_id: parseInt(form.group_id.value),
+        indicator: form.indicator.value,
+        operator: form.operator.value,
+        value: parseFloat(form.value.value) || 0,
+        value2: parseFloat(form.value2.value) || 0,
+        compare_indicator: form.compare_indicator.value,
+        logical_operator: form.logical_operator.value,
+        weight: parseInt(form.weight.value) || 1,
+        is_required: form.is_required.checked,
+        description: form.description.value,
+        order_index: parseInt(form.order_index.value) || 0
+    };
+
+    try {
+        const response = await fetch(`${API_BASE}/signal-conditions/conditions`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        addConditionModal.hide();
+        location.reload();
+    } catch (error) {
+        alert('Failed to add condition: ' + error.message);
+    }
+}
+
+// Delete condition
+async function deleteCondition(id) {
+    if (!confirm('Delete this condition?')) return;
+
+    try {
+        const response = await fetch(`${API_BASE}/signal-conditions/conditions/${id}`, {
+            method: 'DELETE'
+        });
+        const result = await response.json();
+
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        location.reload();
+    } catch (error) {
+        alert('Failed to delete condition: ' + error.message);
+    }
+}
+
+// Delete group
+async function deleteGroup(id) {
+    if (!confirm('Delete this condition group and all its conditions?')) return;
+
+    try {
+        const response = await fetch(`${API_BASE}/signal-conditions/groups/${id}`, {
+            method: 'DELETE'
+        });
+        const result = await response.json();
+
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        location.reload();
+    } catch (error) {
+        alert('Failed to delete group: ' + error.message);
+    }
+}
+
+// Create signal rule
+async function createRule() {
+    const form = document.getElementById('createRuleForm');
+    const groupCheckboxes = form.querySelectorAll('input[name="group_ids"]:checked');
+    const groupIds = Array.from(groupCheckboxes).map(cb => parseInt(cb.value));
+
+    const data = {
+        name: form.name.value,
+        description: form.description.value,
+        signal_type: form.signal_type.value,
+        strategy_type: form.strategy_type.value,
+        min_score: parseInt(form.min_score.value) || 60,
+        target_percent: parseFloat(form.target_percent.value) || 10,
+        stop_loss_percent: parseFloat(form.stop_loss_percent.value) || 5,
+        priority: parseInt(form.priority.value) || 0,
+        group_ids: groupIds
+    };
+
+    try {
+        const response = await fetch(`${API_BASE}/signal-conditions/rules`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        createRuleModal.hide();
+        location.reload();
+    } catch (error) {
+        alert('Failed to create rule: ' + error.message);
+    }
+}
+
+// Delete rule
+async function deleteRule(id) {
+    if (!confirm('Delete this signal rule?')) return;
+
+    try {
+        const response = await fetch(`${API_BASE}/signal-conditions/rules/${id}`, {
+            method: 'DELETE'
+        });
+        const result = await response.json();
+
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        location.reload();
+    } catch (error) {
+        alert('Failed to delete rule: ' + error.message);
+    }
+}
+
+// Test rule against stocks
+async function testRule(ruleId) {
+    try {
+        const response = await fetch(`${API_BASE}/signal-conditions/rules/${ruleId}/test?limit=20`);
+        const result = await response.json();
+
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        showTestResults('Rule Test Results', result.signals, result.count);
+    } catch (error) {
+        alert('Failed to test rule: ' + error.message);
+    }
+}
+
+// Test template against stocks
+async function testTemplate(templateId) {
+    try {
+        const response = await fetch(`${API_BASE}/signal-conditions/templates/${templateId}/test?limit=20`);
+        const result = await response.json();
+
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        showTestResults('Template Test Results', result.signals, result.count);
+    } catch (error) {
+        alert('Failed to test template: ' + error.message);
+    }
+}
+
+// Show test results in modal
+function showTestResults(title, signals, count) {
+    let html = `<p><strong>Found ${count} matching stocks</strong></p>`;
+
+    if (signals && signals.length > 0) {
+        html += `<div class="table-responsive">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Signal</th>
+                        <th>Score</th>
+                        <th>Confidence</th>
+                        <th>Price</th>
+                        <th>Target</th>
+                        <th>Stop Loss</th>
+                        <th>Reasons</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        for (const sig of signals) {
+            const signalClass = sig.signal_type.includes('BUY') ? 'success' :
+                               sig.signal_type.includes('SELL') ? 'danger' : 'secondary';
+            html += `<tr>
+                <td><strong>${sig.code}</strong></td>
+                <td><span class="badge bg-${signalClass}">${sig.signal_type}</span></td>
+                <td>${sig.score}/${sig.max_score}</td>
+                <td>${(sig.confidence * 100).toFixed(1)}%</td>
+                <td>${sig.price.toFixed(2)}</td>
+                <td class="text-success">${sig.target_price ? sig.target_price.toFixed(2) : '-'}</td>
+                <td class="text-danger">${sig.stop_loss ? sig.stop_loss.toFixed(2) : '-'}</td>
+                <td><small>${(sig.reasons || []).slice(0, 2).join(', ')}</small></td>
+            </tr>`;
+        }
+
+        html += '</tbody></table></div>';
+    } else {
+        html += '<div class="alert alert-info">No stocks matched the conditions.</div>';
+    }
+
+    document.getElementById('testResultsContent').innerHTML = html;
+    testResultsModal.show();
+}
+
+// Test stock against conditions
+async function testStockConditions() {
+    const stock = document.getElementById('test_stock').value.toUpperCase();
+    const groupId = document.getElementById('test_group').value;
+    const ruleId = document.getElementById('test_rule').value;
+
+    if (!stock) {
+        alert('Please enter a stock code');
+        return;
+    }
+
+    let url = `${API_BASE}/signal-conditions/test?stock=${stock}`;
+    if (groupId) url += `&group_id=${groupId}`;
+    if (ruleId) url += `&rule_id=${ruleId}`;
+
+    try {
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (result.error) {
+            document.getElementById('test_results').innerHTML =
+                `<div class="alert alert-danger">${result.error}</div>`;
+            return;
+        }
+
+        let html = `<div class="card">
+            <div class="card-header">
+                <strong>${result.stock}</strong> - Price: ${result.price.toFixed(2)}
+            </div>
+            <div class="card-body">
+                <h6>Current Indicators:</h6>
+                <div class="row small">`;
+
+        const ind = result.indicators;
+        html += `
+            <div class="col-md-3">
+                <strong>RSI:</strong> ${ind.rsi.toFixed(1)}<br>
+                <strong>MACD:</strong> ${ind.macd_hist.toFixed(2)}<br>
+            </div>
+            <div class="col-md-3">
+                <strong>MA10:</strong> ${ind.ma10.toFixed(2)}<br>
+                <strong>MA50:</strong> ${ind.ma50.toFixed(2)}<br>
+                <strong>MA200:</strong> ${ind.ma200.toFixed(2)}<br>
+            </div>
+            <div class="col-md-3">
+                <strong>RS 3D:</strong> ${ind.rs_3d.toFixed(1)}<br>
+                <strong>RS Avg:</strong> ${ind.rs_avg.toFixed(1)}<br>
+            </div>
+            <div class="col-md-3">
+                <strong>Vol Ratio:</strong> ${ind.vol_ratio.toFixed(2)}x<br>
+                <strong>Trading Val:</strong> ${ind.avg_trading_val.toFixed(2)} ty<br>
+            </div>
+        </div>`;
+
+        if (result.group_result) {
+            const gr = result.group_result;
+            html += `<hr><h6>Group Test Result:</h6>
+                <p>Passed: <strong class="${gr.passed ? 'text-success' : 'text-danger'}">${gr.passed ? 'YES' : 'NO'}</strong> |
+                Score: ${gr.total_score}/${gr.max_score}</p>`;
+        }
+
+        if (result.rule_signal) {
+            const rs = result.rule_signal;
+            html += `<hr><h6>Rule Signal:</h6>
+                <span class="badge bg-${rs.signal_type.includes('BUY') ? 'success' : 'danger'}">${rs.signal_type}</span>
+                <p>Score: ${rs.score}/${rs.max_score} | Confidence: ${(rs.confidence * 100).toFixed(1)}%</p>
+                <p>Target: ${rs.target_price.toFixed(2)} | Stop Loss: ${rs.stop_loss.toFixed(2)}</p>`;
+        } else if (result.rule_message) {
+            html += `<hr><p class="text-muted">${result.rule_message}</p>`;
+        }
+
+        html += '</div></div>';
+        document.getElementById('test_results').innerHTML = html;
+
+    } catch (error) {
+        document.getElementById('test_results').innerHTML =
+            `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+}
+
+function editGroup(id) {
+    alert('Edit group ' + id + ' - Coming soon!');
+}
+
+function editRule(id) {
+    alert('Edit rule ' + id + ' - Coming soon!');
+}
+
+function deleteTemplate(id) {
+    if (!confirm('Delete this template?')) return;
+    // TODO: Implement
+    alert('Delete template - Coming soon!');
+}
+</script>
+{{ end }}
