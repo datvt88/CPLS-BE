@@ -76,7 +76,10 @@
                     <a href="/admin/trading-bot" class="{{ if eq .page "bot" }}active{{ end }}">
                         <i class="bi bi-robot"></i> Trading Bot
                     </a>
-                    
+                    <a href="/admin/signals" class="{{ if eq .page "signals" }}active{{ end }}">
+                        <i class="bi bi-lightning-charge"></i> Trading Signals
+                    </a>
+
                     <div class="sidebar-section">User Management</div>
                     <a href="/admin/users" class="{{ if eq .page "users" }}active{{ end }}">
                         <i class="bi bi-people"></i> Users (Supabase)

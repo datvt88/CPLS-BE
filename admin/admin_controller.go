@@ -156,6 +156,18 @@ func (ac *AdminController) TradingBotPage(c *gin.Context) {
 	})
 }
 
+// SignalsPage shows trading signals management page
+func (ac *AdminController) SignalsPage(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
+	c.HTML(http.StatusOK, "signals.html", gin.H{
+		"adminUser":  adminUser,
+		"botRunning": ac.tradingBot.IsRunning(),
+		"page":       "signals",
+		"title":      "Trading Signals",
+	})
+}
+
 // FetchHistoricalDataAction fetches historical data
 func (ac *AdminController) FetchHistoricalDataAction(c *gin.Context) {
 	symbol := c.PostForm("symbol")

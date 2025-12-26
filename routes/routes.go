@@ -234,6 +234,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 			protected.GET("/strategies", adminController.StrategiesPage)
 			protected.GET("/backtests", adminController.BacktestsPage)
 			protected.GET("/trading-bot", adminController.TradingBotPage)
+			protected.GET("/signals", adminController.SignalsPage)
 			protected.GET("/users", adminController.UsersPage)
 			protected.GET("/admin-users", adminController.AdminUsersPage)
 			protected.GET("/api-overview", adminController.APIOverviewPage)
