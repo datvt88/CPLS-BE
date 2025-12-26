@@ -230,8 +230,8 @@ func ImportStocksFromJSON(jsonData []byte) (*StockSyncResult, error) {
 	return result, nil
 }
 
-// SyncStocksFromVNDirect syncs stocks from VNDirect API to MongoDB
-func SyncStocksFromVNDirect() (*StockSyncResult, error) {
+// syncStocksFromVNDirectInternal syncs stocks from VNDirect API to MongoDB
+func syncStocksFromVNDirectInternal() (*StockSyncResult, error) {
 	result := &StockSyncResult{
 		Errors:   []string{},
 		SyncedAt: time.Now().UTC().Format(time.RFC3339),
@@ -425,9 +425,9 @@ func (c *SupabaseDBClient) GetStockStats() (map[string]interface{}, error) {
 	}, nil
 }
 
-// SyncStocksFromVNDirectWrapper syncs stocks from VNDirect API to MongoDB
-func (c *SupabaseDBClient) SyncStocksFromVNDirectWrapper() (*StockSyncResult, error) {
-	return SyncStocksFromVNDirect()
+// SyncStocksFromVNDirect syncs stocks from VNDirect API to MongoDB (wrapper for SupabaseDBClient)
+func (c *SupabaseDBClient) SyncStocksFromVNDirect() (*StockSyncResult, error) {
+	return syncStocksFromVNDirectInternal()
 }
 
 // DeleteStock removes a stock (not supported with file-based storage)
