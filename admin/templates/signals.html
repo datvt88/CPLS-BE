@@ -1,0 +1,405 @@
+{{ define "content" }}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-lightning-charge"></i> Trading Signals - Algorithmic Trading System</h5>
+            </div>
+            <div class="card-body">
+                <!-- Strategy Selection and Filters -->
+                <div class="row mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Strategy</label>
+                        <select class="form-select form-select-sm" id="strategy">
+                            <option value="composite" selected>Composite (All)</option>
+                            <option value="momentum">Momentum</option>
+                            <option value="trend_following">Trend Following</option>
+                            <option value="mean_reversion">Mean Reversion</option>
+                            <option value="breakout">Breakout</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Signal Type</label>
+                        <select class="form-select form-select-sm" id="signal_type">
+                            <option value="">All Signals</option>
+                            <option value="STRONG_BUY">Strong Buy</option>
+                            <option value="BUY">Buy</option>
+                            <option value="HOLD">Hold</option>
+                            <option value="SELL">Sell</option>
+                            <option value="STRONG_SELL">Strong Sell</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Min Strength</label>
+                        <input type="number" class="form-control form-control-sm" id="min_strength" value="0" min="0" max="100" step="10">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Min Trading Val (ty)</label>
+                        <input type="number" class="form-control form-control-sm" id="min_trading_val" value="1" min="0" step="0.5">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Limit</label>
+                        <input type="number" class="form-control form-control-sm" id="limit" value="50" min="10" max="200" step="10">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button class="btn btn-primary btn-sm w-100" onclick="loadSignals()">
+                            <i class="bi bi-search"></i> Load Signals
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-success btn-sm" onclick="loadTopBuySignals()">
+                                <i class="bi bi-arrow-up-circle"></i> Top Buy Signals
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="loadTopSellSignals()">
+                                <i class="bi bi-arrow-down-circle"></i> Top Sell Signals
+                            </button>
+                            <button class="btn btn-info btn-sm" onclick="loadTopSignals()">
+                                <i class="bi bi-star"></i> Top Opportunities
+                            </button>
+                            <button class="btn btn-secondary btn-sm" onclick="refreshSignals()">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loading indicator -->
+                <div id="loading" class="text-center d-none">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Generating signals...</p>
+                </div>
+
+                <!-- Signals Table -->
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover table-sm" id="signalsTable">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Code</th>
+                                <th>Signal</th>
+                                <th>Strength</th>
+                                <th>Confidence</th>
+                                <th>Price</th>
+                                <th>Target</th>
+                                <th>Stop Loss</th>
+                                <th>RS Avg</th>
+                                <th>RSI</th>
+                                <th>Vol Ratio</th>
+                                <th>Reasons</th>
+                            </tr>
+                        </thead>
+                        <tbody id="signalsBody">
+                            <tr>
+                                <td colspan="11" class="text-center text-muted">Click "Load Signals" to generate trading signals</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="signalCount" class="text-muted small mt-2"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Top Opportunities Section -->
+<div class="row" id="topOpportunities" style="display: none;">
+    <div class="col-md-6">
+        <div class="card border-success">
+            <div class="card-header bg-success text-white">
+                <h6 class="mb-0"><i class="bi bi-arrow-up-circle"></i> Top Buy Signals</h6>
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Signal</th>
+                                <th>Strength</th>
+                                <th>Price</th>
+                                <th>Target</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topBuyBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <h6 class="mb-0"><i class="bi bi-arrow-down-circle"></i> Top Sell Signals</h6>
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Signal</th>
+                                <th>Strength</th>
+                                <th>Price</th>
+                                <th>Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topSellBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Strategy Info -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle"></i> Strategy Descriptions</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <h6 class="text-primary">Momentum</h6>
+                        <small class="text-muted">Based on Relative Strength (RS) rankings across multiple timeframes (3D, 1M, 3M, 1Y). Best for trending markets.</small>
+                    </div>
+                    <div class="col-md-3">
+                        <h6 class="text-success">Trend Following</h6>
+                        <small class="text-muted">Uses MA crossovers (Golden/Death Cross), MACD, and price-MA relationships. Best for established trends.</small>
+                    </div>
+                    <div class="col-md-3">
+                        <h6 class="text-warning">Mean Reversion</h6>
+                        <small class="text-muted">Identifies oversold/overbought conditions using RSI and price deviation from MA50. Best for range-bound markets.</small>
+                    </div>
+                    <div class="col-md-3">
+                        <h6 class="text-danger">Breakout</h6>
+                        <small class="text-muted">Detects volume spikes with strong short-term momentum. Best for catching early moves.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+const API_BASE = '/api/v1';
+
+function getSignalBadge(signal) {
+    const badges = {
+        'STRONG_BUY': '<span class="badge bg-success">STRONG BUY</span>',
+        'BUY': '<span class="badge bg-success bg-opacity-75">BUY</span>',
+        'HOLD': '<span class="badge bg-secondary">HOLD</span>',
+        'SELL': '<span class="badge bg-danger bg-opacity-75">SELL</span>',
+        'STRONG_SELL': '<span class="badge bg-danger">STRONG SELL</span>'
+    };
+    return badges[signal] || signal;
+}
+
+function getStrengthBar(strength) {
+    let colorClass = 'bg-secondary';
+    if (strength >= 80) colorClass = 'bg-success';
+    else if (strength >= 60) colorClass = 'bg-info';
+    else if (strength >= 40) colorClass = 'bg-warning';
+    else if (strength < 30) colorClass = 'bg-danger';
+
+    return `<div class="progress" style="height: 20px;">
+        <div class="progress-bar ${colorClass}" style="width: ${strength}%">${strength}</div>
+    </div>`;
+}
+
+function formatPrice(price) {
+    if (!price || price === 0) return '-';
+    return price.toFixed(2);
+}
+
+function formatPercent(value) {
+    if (!value) return '-';
+    return (value * 100).toFixed(1) + '%';
+}
+
+async function loadSignals() {
+    const strategy = document.getElementById('strategy').value;
+    const signalType = document.getElementById('signal_type').value;
+    const minStrength = document.getElementById('min_strength').value;
+    const minTradingVal = document.getElementById('min_trading_val').value;
+    const limit = document.getElementById('limit').value;
+
+    showLoading(true);
+
+    try {
+        let url = `${API_BASE}/signals?strategy=${strategy}&limit=${limit}&min_strength=${minStrength}&min_trading_val=${minTradingVal}`;
+        if (signalType) url += `&signal_type=${signalType}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+
+        renderSignals(data.signals || []);
+        document.getElementById('signalCount').textContent = `Total: ${data.count || 0} signals | Strategy: ${data.strategy}`;
+        document.getElementById('topOpportunities').style.display = 'none';
+    } catch (error) {
+        showError('Failed to load signals: ' + error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function loadTopBuySignals() {
+    showLoading(true);
+    try {
+        const response = await fetch(`${API_BASE}/signals/buy?min_strength=60&limit=20`);
+        const data = await response.json();
+
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+
+        renderSignals(data.signals || []);
+        document.getElementById('signalCount').textContent = `Buy Signals: ${data.count || 0}`;
+        document.getElementById('topOpportunities').style.display = 'none';
+    } catch (error) {
+        showError('Failed to load buy signals: ' + error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function loadTopSellSignals() {
+    showLoading(true);
+    try {
+        const response = await fetch(`${API_BASE}/signals/sell?min_strength=60&limit=20`);
+        const data = await response.json();
+
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+
+        renderSignals(data.signals || []);
+        document.getElementById('signalCount').textContent = `Sell Signals: ${data.count || 0}`;
+        document.getElementById('topOpportunities').style.display = 'none';
+    } catch (error) {
+        showError('Failed to load sell signals: ' + error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function loadTopSignals() {
+    showLoading(true);
+    try {
+        const response = await fetch(`${API_BASE}/signals/top?limit=10`);
+        const data = await response.json();
+
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+
+        // Show top opportunities section
+        document.getElementById('topOpportunities').style.display = 'flex';
+
+        // Render buy signals
+        const buyBody = document.getElementById('topBuyBody');
+        buyBody.innerHTML = '';
+        (data.top_buy_signals || []).forEach(signal => {
+            buyBody.innerHTML += `
+                <tr>
+                    <td><strong>${signal.code}</strong></td>
+                    <td>${getSignalBadge(signal.signal)}</td>
+                    <td>${signal.strength}</td>
+                    <td>${formatPrice(signal.price)}</td>
+                    <td class="text-success">${formatPrice(signal.target_price)}</td>
+                </tr>
+            `;
+        });
+
+        // Render sell signals
+        const sellBody = document.getElementById('topSellBody');
+        sellBody.innerHTML = '';
+        (data.top_sell_signals || []).forEach(signal => {
+            sellBody.innerHTML += `
+                <tr>
+                    <td><strong>${signal.code}</strong></td>
+                    <td>${getSignalBadge(signal.signal)}</td>
+                    <td>${signal.strength}</td>
+                    <td>${formatPrice(signal.price)}</td>
+                    <td><small>${signal.reasons && signal.reasons[0] ? signal.reasons[0] : '-'}</small></td>
+                </tr>
+            `;
+        });
+
+        // Clear main table
+        document.getElementById('signalsBody').innerHTML = '<tr><td colspan="11" class="text-center">See Top Opportunities above</td></tr>';
+        document.getElementById('signalCount').textContent = `Top Buy: ${data.buy_count || 0} | Top Sell: ${data.sell_count || 0}`;
+    } catch (error) {
+        showError('Failed to load top signals: ' + error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+function renderSignals(signals) {
+    const tbody = document.getElementById('signalsBody');
+
+    if (!signals || signals.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">No signals found matching criteria</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '';
+    signals.forEach(signal => {
+        const ind = signal.indicators || {};
+        const reasons = signal.reasons || [];
+
+        tbody.innerHTML += `
+            <tr>
+                <td><strong>${signal.code}</strong></td>
+                <td>${getSignalBadge(signal.signal)}</td>
+                <td style="min-width: 100px;">${getStrengthBar(signal.strength)}</td>
+                <td>${formatPercent(signal.confidence)}</td>
+                <td>${formatPrice(signal.price)}</td>
+                <td class="text-success">${formatPrice(signal.target_price)}</td>
+                <td class="text-danger">${formatPrice(signal.stop_loss)}</td>
+                <td>${(ind.rs_avg || 0).toFixed(1)}</td>
+                <td>${(ind.rsi || 0).toFixed(1)}</td>
+                <td>${(ind.vol_ratio || 0).toFixed(2)}x</td>
+                <td><small class="text-muted">${reasons.slice(0, 2).join(', ') || '-'}</small></td>
+            </tr>
+        `;
+    });
+}
+
+function refreshSignals() {
+    loadSignals();
+}
+
+function showLoading(show) {
+    document.getElementById('loading').classList.toggle('d-none', !show);
+}
+
+function showError(message) {
+    const tbody = document.getElementById('signalsBody');
+    tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger">${message}</td></tr>`;
+}
+
+// Load signals on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadTopSignals();
+});
+</script>
+{{ end }}

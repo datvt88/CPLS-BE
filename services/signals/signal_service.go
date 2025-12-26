@@ -728,13 +728,13 @@ func (s *CompositeStrategy) Evaluate(ind *services.ExtendedStockIndicators) (*Tr
 	}
 
 	// Aggregate reasons from strongest signals
-	if momSignal.Strength >= 60 {
+	if momSignal.Strength >= 60 && len(momSignal.Reasons) > 0 {
 		signal.Reasons = append(signal.Reasons, "[Momentum] "+momSignal.Reasons[0])
 	}
-	if trendSignal.Strength >= 60 {
+	if trendSignal.Strength >= 60 && len(trendSignal.Reasons) > 0 {
 		signal.Reasons = append(signal.Reasons, "[Trend] "+trendSignal.Reasons[0])
 	}
-	if breakoutSignal.Strength >= 70 {
+	if breakoutSignal.Strength >= 70 && len(breakoutSignal.Reasons) > 0 {
 		signal.Reasons = append(signal.Reasons, "[Breakout] "+breakoutSignal.Reasons[0])
 	}
 
