@@ -22,6 +22,11 @@ const (
 	OperatorCrossBelow       ConditionOperator = "cross_below" // crosses below
 )
 
+// String returns the string representation of ConditionOperator
+func (c ConditionOperator) String() string {
+	return string(c)
+}
+
 // IndicatorType represents the type of technical indicator
 type IndicatorType string
 
@@ -46,6 +51,11 @@ const (
 	IndicatorTradingValue  IndicatorType = "TRADING_VALUE"
 )
 
+// String returns the string representation of IndicatorType
+func (i IndicatorType) String() string {
+	return string(i)
+}
+
 // LogicalOperator for combining conditions
 type LogicalOperator string
 
@@ -53,6 +63,11 @@ const (
 	LogicalAnd LogicalOperator = "AND"
 	LogicalOr  LogicalOperator = "OR"
 )
+
+// String returns the string representation of LogicalOperator
+func (l LogicalOperator) String() string {
+	return string(l)
+}
 
 // SignalConditionGroup represents a group of conditions that can be reused
 type SignalConditionGroup struct {
