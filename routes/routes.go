@@ -238,6 +238,36 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 			protected.GET("/users", adminController.UsersPage)
 			protected.GET("/admin-users", adminController.AdminUsersPage)
 			protected.GET("/api-overview", adminController.APIOverviewPage)
+			protected.GET("/signal-conditions", adminController.SignalConditionsPage)
+
+			// Signal Conditions Management
+			signalConds := protected.Group("/signal-conditions")
+			{
+				// Condition Groups
+				signalConds.POST("/groups", adminController.CreateConditionGroupAction)
+				signalConds.PUT("/groups/:id", adminController.UpdateConditionGroupAction)
+				signalConds.DELETE("/groups/:id", adminController.DeleteConditionGroupAction)
+
+				// Individual Conditions
+				signalConds.POST("/conditions", adminController.AddConditionAction)
+				signalConds.PUT("/conditions/:id", adminController.UpdateConditionAction)
+				signalConds.DELETE("/conditions/:id", adminController.DeleteConditionAction)
+
+				// Signal Rules
+				signalConds.POST("/rules", adminController.CreateSignalRuleAction)
+				signalConds.PUT("/rules/:id", adminController.UpdateSignalRuleAction)
+				signalConds.DELETE("/rules/:id", adminController.DeleteSignalRuleAction)
+				signalConds.GET("/rules/:id/test", adminController.TestSignalRuleAction)
+				signalConds.GET("/rules/:id/stats", adminController.GetRuleStatisticsAction)
+
+				// Templates
+				signalConds.GET("/templates", adminController.GetTemplatesAction)
+				signalConds.GET("/templates/:id/test", adminController.TestTemplateAction)
+				signalConds.POST("/templates/from-group", adminController.CreateTemplateFromGroupAction)
+
+				// Testing
+				signalConds.GET("/test", adminController.TestStockWithConditionsAction)
+			}
 
 			// Admin actions
 			actions := protected.Group("/actions")

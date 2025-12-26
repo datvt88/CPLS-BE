@@ -197,6 +197,10 @@ func initFastLocalServices() {
 		log.Println("Signal Service initialized successfully")
 	}
 
+	// Initialize Signal Condition Evaluator for custom conditions
+	// Note: This requires database connection, defer to after DB is ready
+	log.Println("Signal Condition Evaluator will be initialized after database connection")
+
 	log.Println("Fast local services initialized")
 }
 
@@ -321,6 +325,13 @@ func initDirectDB(router *gin.Engine) {
 	// Run migrations
 	log.Println("Running migrations...")
 	runMigrations(globalDB)
+
+	// Initialize Signal Condition Evaluator (requires DB)
+	if err := signals.InitConditionEvaluator(globalDB); err != nil {
+		log.Printf("Warning: Failed to initialize Signal Condition Evaluator: %v", err)
+	} else {
+		log.Println("Signal Condition Evaluator initialized successfully")
+	}
 
 	// Setup full routes
 	routes.SetupRoutes(router, globalDB)
@@ -576,6 +587,9 @@ func runMigrations(db *gorm.DB) {
 	}
 	if err := models.MigrateTradingModels(db); err != nil {
 		log.Printf("MigrateTradingModels: %v", err)
+	}
+	if err := models.MigrateSignalConditionModels(db); err != nil {
+		log.Printf("MigrateSignalConditionModels: %v", err)
 	}
 	if err := models.MigrateUserModels(db); err != nil {
 		log.Printf("MigrateUserModels: %v", err)
