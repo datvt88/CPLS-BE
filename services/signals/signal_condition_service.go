@@ -110,7 +110,7 @@ func (e *ConditionEvaluator) GetIndicatorValue(ind *services.ExtendedStockIndica
 	case models.IndicatorRSAvg:
 		return ind.RSAvg
 	case models.IndicatorVolume:
-		return float64(ind.Volume)
+		return ind.AvgVol
 	case models.IndicatorVolRatio:
 		return ind.VolRatio
 	case models.IndicatorPrice:
