@@ -334,11 +334,12 @@
                         </div>
                         <div class="card-body">
                             <div class="row g-3">
-                                <!-- RS Filters -->
+                                <!-- Stock Code Search -->
                                 <div class="col-md-2">
-                                    <label class="form-label fw-bold">RS Avg Min</label>
-                                    <input type="number" class="form-control form-control-sm" id="rs_avg_min" value="40" step="1" min="0" max="100">
+                                    <label class="form-label fw-bold">Stock Code</label>
+                                    <input type="text" class="form-control form-control-sm" id="stock_code" placeholder="VNM, FPT..." style="text-transform: uppercase;">
                                 </div>
+                                <!-- RS Filters -->
                                 <div class="col-md-2">
                                     <label class="form-label fw-bold">RS 3D Min</label>
                                     <input type="number" class="form-control form-control-sm" id="rs_3d_min" value="0" step="1" min="0" max="100">
@@ -354,6 +355,10 @@
                                 <div class="col-md-2">
                                     <label class="form-label fw-bold">RS 1Y Min</label>
                                     <input type="number" class="form-control form-control-sm" id="rs_1y_min" value="80" step="1" min="0" max="100">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label fw-bold">RS Avg Min</label>
+                                    <input type="number" class="form-control form-control-sm" id="rs_avg_min" value="40" step="1" min="0" max="100">
                                 </div>
                                 <div class="col-md-2">
                                     <label class="form-label fw-bold">MACD His Min</label>
@@ -433,11 +438,11 @@
                                                     <th>#</th>
                                                     <th>Code</th>
                                                     <th>Price</th>
-                                                    <th>RS Avg</th>
                                                     <th>RS 3D</th>
                                                     <th>RS 1M</th>
                                                     <th>RS 3M</th>
                                                     <th>RS 1Y</th>
+                                                    <th>RS Avg</th>
                                                     <th>MACD His</th>
                                                     <th>Avg Vol</th>
                                                     <th>Avg Trading Vol</th>
@@ -1315,6 +1320,13 @@
 
         function applyFilter() {
             const params = new URLSearchParams();
+
+            // Stock code filter (comma-separated)
+            const stockCode = document.getElementById('stock_code').value.trim().toUpperCase();
+            if (stockCode) {
+                params.append('codes', stockCode);
+            }
+
             params.append('rs_avg_min', document.getElementById('rs_avg_min').value || 0);
             params.append('rs_3d_min', document.getElementById('rs_3d_min').value || 0);
             params.append('rs_1m_min', document.getElementById('rs_1m_min').value || 0);
@@ -1364,11 +1376,11 @@
                                 <td>${index + 1}</td>
                                 <td><strong class="stock-code">${stock.code}</strong></td>
                                 <td>${ind.current_price ? ind.current_price.toLocaleString() : '-'}</td>
-                                <td><span class="badge bg-primary">${ind.rs_avg || 0}</span></td>
                                 <td>${ind.rs_3d_rank || 0}</td>
                                 <td>${ind.rs_1m_rank || 0}</td>
                                 <td>${ind.rs_3m_rank || 0}</td>
                                 <td>${ind.rs_1y_rank || 0}</td>
+                                <td><span class="badge bg-primary">${ind.rs_avg || 0}</span></td>
                                 <td class="${ind.macd_hist >= 0 ? 'text-success' : 'text-danger'}">${ind.macd_hist ? ind.macd_hist.toFixed(2) : '-'}</td>
                                 <td>${ind.avg_vol ? formatNumber(ind.avg_vol) : '-'}</td>
                                 <td>${ind.avg_trading_val ? formatBillions(ind.avg_trading_val) : '-'}</td>
