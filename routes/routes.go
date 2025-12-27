@@ -239,6 +239,8 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 			protected.GET("/admin-users", adminController.AdminUsersPage)
 			protected.GET("/api-overview", adminController.APIOverviewPage)
 			protected.GET("/signal-conditions", adminController.SignalConditionsPage)
+			protected.GET("/stock-indicators", adminController.StockIndicatorsPage)
+			protected.GET("/stock-indicators/search", adminController.SearchStockIndicators)
 
 			// Signal Conditions Management
 			signalConds := protected.Group("/signal-conditions")

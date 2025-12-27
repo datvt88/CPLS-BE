@@ -1,0 +1,473 @@
+{{ define "content" }}
+<div class="container-fluid py-4">
+    <h2><i class="bi bi-search"></i> Stock Indicator Lookup</h2>
+    <p class="text-muted">Search for a stock code to view all calculated technical indicators</p>
+
+    <!-- Search Widget -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row align-items-end">
+                <div class="col-md-4">
+                    <label for="stockCode" class="form-label">Stock Code</label>
+                    <input type="text" class="form-control form-control-lg" id="stockCode"
+                           placeholder="Enter stock code (e.g., VNM, FPT, VIC)"
+                           style="text-transform: uppercase;">
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary btn-lg w-100" onclick="searchStock()">
+                        <i class="bi bi-search"></i> Search
+                    </button>
+                </div>
+                <div class="col-md-6">
+                    <div id="stockInfo" class="text-muted"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading indicator -->
+    <div id="loading" class="text-center py-5 d-none">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading indicators...</p>
+    </div>
+
+    <!-- Error message -->
+    <div id="errorMsg" class="alert alert-danger d-none"></div>
+
+    <!-- Results -->
+    <div id="results" class="d-none">
+        <!-- Price & Basic Info -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-primary text-white">
+                    <div class="card-body text-center">
+                        <h6>Current Price</h6>
+                        <h2 id="currentPrice">-</h2>
+                        <span id="priceChange" class="badge"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body text-center">
+                        <h6>RSI (14)</h6>
+                        <h2 id="rsiValue">-</h2>
+                        <span id="rsiStatus" class="badge"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body text-center">
+                        <h6>RS Average Rank</h6>
+                        <h2 id="rsAvg">-</h2>
+                        <small>Percentile</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-warning text-dark">
+                    <div class="card-body text-center">
+                        <h6>Volume Ratio</h6>
+                        <h2 id="volRatio">-</h2>
+                        <small>vs 5-day avg</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- All Indicators Table -->
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-table"></i> All Technical Indicators</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Relative Strength -->
+                    <div class="col-md-6">
+                        <h6 class="text-primary border-bottom pb-2">
+                            <i class="bi bi-graph-up-arrow"></i> Relative Strength
+                        </h6>
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr><th>Indicator</th><th>Change %</th><th>Rank</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>RS 3 Days</td>
+                                    <td id="rs3d">-</td>
+                                    <td><span id="rs3dRank" class="badge bg-secondary">-</span></td>
+                                </tr>
+                                <tr>
+                                    <td>RS 1 Month</td>
+                                    <td id="rs1m">-</td>
+                                    <td><span id="rs1mRank" class="badge bg-secondary">-</span></td>
+                                </tr>
+                                <tr>
+                                    <td>RS 3 Months</td>
+                                    <td id="rs3m">-</td>
+                                    <td><span id="rs3mRank" class="badge bg-secondary">-</span></td>
+                                </tr>
+                                <tr>
+                                    <td>RS 1 Year</td>
+                                    <td id="rs1y">-</td>
+                                    <td><span id="rs1yRank" class="badge bg-secondary">-</span></td>
+                                </tr>
+                                <tr class="table-primary">
+                                    <td><strong>RS Average</strong></td>
+                                    <td>-</td>
+                                    <td><span id="rsAvgRank" class="badge bg-primary">-</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Moving Averages -->
+                    <div class="col-md-6">
+                        <h6 class="text-success border-bottom pb-2">
+                            <i class="bi bi-graph-down"></i> Moving Averages
+                        </h6>
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr><th>Indicator</th><th>Value</th><th>vs Price</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>MA 10</td>
+                                    <td id="ma10">-</td>
+                                    <td id="ma10Status">-</td>
+                                </tr>
+                                <tr>
+                                    <td>MA 30</td>
+                                    <td id="ma30">-</td>
+                                    <td id="ma30Status">-</td>
+                                </tr>
+                                <tr>
+                                    <td>MA 50</td>
+                                    <td id="ma50">-</td>
+                                    <td id="ma50Status">-</td>
+                                </tr>
+                                <tr>
+                                    <td>MA 200</td>
+                                    <td id="ma200">-</td>
+                                    <td id="ma200Status">-</td>
+                                </tr>
+                                <tr class="table-info">
+                                    <td><strong>MA10 > MA30</strong></td>
+                                    <td colspan="2"><span id="ma10AboveMa30" class="badge">-</span></td>
+                                </tr>
+                                <tr class="table-info">
+                                    <td><strong>MA50 > MA200</strong></td>
+                                    <td colspan="2"><span id="ma50AboveMa200" class="badge">-</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <!-- MACD -->
+                    <div class="col-md-6">
+                        <h6 class="text-danger border-bottom pb-2">
+                            <i class="bi bi-activity"></i> MACD
+                        </h6>
+                        <table class="table table-sm table-hover">
+                            <tbody>
+                                <tr>
+                                    <td>MACD Line</td>
+                                    <td id="macd">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Signal Line</td>
+                                    <td id="macdSignal">-</td>
+                                </tr>
+                                <tr class="table-warning">
+                                    <td><strong>MACD Histogram</strong></td>
+                                    <td><span id="macdHist" class="badge">-</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h6 class="text-info border-bottom pb-2 mt-4">
+                            <i class="bi bi-speedometer2"></i> RSI
+                        </h6>
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr>
+                                    <td>RSI (14)</td>
+                                    <td id="rsiDetail">-</td>
+                                    <td id="rsiZone">-</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Volume -->
+                    <div class="col-md-6">
+                        <h6 class="text-warning border-bottom pb-2">
+                            <i class="bi bi-bar-chart-fill"></i> Volume
+                        </h6>
+                        <table class="table table-sm table-hover">
+                            <tbody>
+                                <tr>
+                                    <td>Average Volume (5d)</td>
+                                    <td id="avgVol">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Avg Trading Value (5d)</td>
+                                    <td id="avgTradingVal">-</td>
+                                </tr>
+                                <tr class="table-warning">
+                                    <td><strong>Volume Ratio</strong></td>
+                                    <td><span id="volRatioDetail" class="badge">-</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h6 class="text-secondary border-bottom pb-2 mt-4">
+                            <i class="bi bi-info-circle"></i> Metadata
+                        </h6>
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr>
+                                    <td>Stock Code</td>
+                                    <td id="stockCodeResult">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Last Updated</td>
+                                    <td id="updatedAt">-</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw JSON Data -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <button class="btn btn-sm btn-outline-secondary" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#rawJson">
+                    <i class="bi bi-code"></i> View Raw JSON
+                </button>
+            </div>
+            <div class="collapse" id="rawJson">
+                <div class="card-body">
+                    <pre id="jsonData" class="bg-dark text-light p-3 rounded"
+                         style="max-height: 400px; overflow: auto;"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Search on Enter key
+document.getElementById('stockCode').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        searchStock();
+    }
+});
+
+function searchStock() {
+    const code = document.getElementById('stockCode').value.trim().toUpperCase();
+    if (!code) {
+        showError('Please enter a stock code');
+        return;
+    }
+
+    document.getElementById('loading').classList.remove('d-none');
+    document.getElementById('results').classList.add('d-none');
+    document.getElementById('errorMsg').classList.add('d-none');
+
+    fetch(`/admin/stock-indicators/search?code=${encodeURIComponent(code)}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('loading').classList.add('d-none');
+            if (data.error) {
+                showError(data.error);
+            } else {
+                displayResults(data);
+            }
+        })
+        .catch(error => {
+            document.getElementById('loading').classList.add('d-none');
+            showError('Failed to fetch data: ' + error.message);
+        });
+}
+
+function showError(message) {
+    const errorEl = document.getElementById('errorMsg');
+    errorEl.textContent = message;
+    errorEl.classList.remove('d-none');
+}
+
+function displayResults(data) {
+    document.getElementById('results').classList.remove('d-none');
+
+    // Price & Basic
+    document.getElementById('currentPrice').textContent = formatNumber(data.current_price);
+    const priceChange = data.price_change || 0;
+    const priceChangeEl = document.getElementById('priceChange');
+    priceChangeEl.textContent = (priceChange >= 0 ? '+' : '') + priceChange.toFixed(2) + '%';
+    priceChangeEl.className = 'badge ' + (priceChange >= 0 ? 'bg-success' : 'bg-danger');
+
+    // RSI
+    document.getElementById('rsiValue').textContent = data.rsi.toFixed(1);
+    const rsiStatus = document.getElementById('rsiStatus');
+    if (data.rsi < 30) {
+        rsiStatus.textContent = 'Oversold';
+        rsiStatus.className = 'badge bg-success';
+    } else if (data.rsi > 70) {
+        rsiStatus.textContent = 'Overbought';
+        rsiStatus.className = 'badge bg-danger';
+    } else {
+        rsiStatus.textContent = 'Neutral';
+        rsiStatus.className = 'badge bg-secondary';
+    }
+
+    // RS Average
+    document.getElementById('rsAvg').textContent = data.rs_avg.toFixed(1);
+
+    // Volume Ratio
+    document.getElementById('volRatio').textContent = data.vol_ratio.toFixed(2) + 'x';
+
+    // Relative Strength Table
+    document.getElementById('rs3d').textContent = formatPercent(data.rs_3d);
+    document.getElementById('rs3dRank').textContent = data.rs_3d_rank.toFixed(0);
+    setRankBadge('rs3dRank', data.rs_3d_rank);
+
+    document.getElementById('rs1m').textContent = formatPercent(data.rs_1m);
+    document.getElementById('rs1mRank').textContent = data.rs_1m_rank.toFixed(0);
+    setRankBadge('rs1mRank', data.rs_1m_rank);
+
+    document.getElementById('rs3m').textContent = formatPercent(data.rs_3m);
+    document.getElementById('rs3mRank').textContent = data.rs_3m_rank.toFixed(0);
+    setRankBadge('rs3mRank', data.rs_3m_rank);
+
+    document.getElementById('rs1y').textContent = formatPercent(data.rs_1y);
+    document.getElementById('rs1yRank').textContent = data.rs_1y_rank.toFixed(0);
+    setRankBadge('rs1yRank', data.rs_1y_rank);
+
+    document.getElementById('rsAvgRank').textContent = data.rs_avg.toFixed(0);
+    setRankBadge('rsAvgRank', data.rs_avg);
+
+    // Moving Averages
+    const price = data.current_price;
+    setMAValue('ma10', data.ma_10, price);
+    setMAValue('ma30', data.ma_30, price);
+    setMAValue('ma50', data.ma_50, price);
+    setMAValue('ma200', data.ma_200, price);
+
+    setBoolBadge('ma10AboveMa30', data.ma10_above_ma30, 'Bullish', 'Bearish');
+    setBoolBadge('ma50AboveMa200', data.ma50_above_ma200, 'Golden Cross', 'Death Cross');
+
+    // MACD
+    document.getElementById('macd').textContent = data.macd.toFixed(3);
+    document.getElementById('macdSignal').textContent = data.macd_signal.toFixed(3);
+    const macdHistEl = document.getElementById('macdHist');
+    macdHistEl.textContent = data.macd_hist.toFixed(3);
+    macdHistEl.className = 'badge ' + (data.macd_hist >= 0 ? 'bg-success' : 'bg-danger');
+
+    // RSI Detail
+    document.getElementById('rsiDetail').textContent = data.rsi.toFixed(2);
+    const rsiZone = document.getElementById('rsiZone');
+    if (data.rsi < 30) {
+        rsiZone.innerHTML = '<span class="badge bg-success">Oversold Zone</span>';
+    } else if (data.rsi > 70) {
+        rsiZone.innerHTML = '<span class="badge bg-danger">Overbought Zone</span>';
+    } else if (data.rsi < 50) {
+        rsiZone.innerHTML = '<span class="badge bg-warning text-dark">Bearish Zone</span>';
+    } else {
+        rsiZone.innerHTML = '<span class="badge bg-info">Bullish Zone</span>';
+    }
+
+    // Volume
+    document.getElementById('avgVol').textContent = formatVolume(data.avg_vol);
+    document.getElementById('avgTradingVal').textContent = formatTradingValue(data.avg_trading_val);
+    const volRatioDetail = document.getElementById('volRatioDetail');
+    volRatioDetail.textContent = data.vol_ratio.toFixed(2) + 'x';
+    if (data.vol_ratio > 1.5) {
+        volRatioDetail.className = 'badge bg-success';
+    } else if (data.vol_ratio < 0.5) {
+        volRatioDetail.className = 'badge bg-danger';
+    } else {
+        volRatioDetail.className = 'badge bg-secondary';
+    }
+
+    // Metadata
+    document.getElementById('stockCodeResult').textContent = data.code || document.getElementById('stockCode').value.toUpperCase();
+    document.getElementById('updatedAt').textContent = data.updated_at || 'N/A';
+
+    // Raw JSON
+    document.getElementById('jsonData').textContent = JSON.stringify(data, null, 2);
+}
+
+function formatNumber(num) {
+    if (!num) return '-';
+    return new Intl.NumberFormat('vi-VN').format(num);
+}
+
+function formatPercent(num) {
+    if (num === undefined || num === null) return '-';
+    return (num >= 0 ? '+' : '') + num.toFixed(2) + '%';
+}
+
+function formatVolume(vol) {
+    if (!vol) return '-';
+    if (vol >= 1000000) return (vol / 1000000).toFixed(2) + 'M';
+    if (vol >= 1000) return (vol / 1000).toFixed(2) + 'K';
+    return vol.toFixed(0);
+}
+
+function formatTradingValue(val) {
+    if (!val) return '-';
+    if (val >= 1000000000) return (val / 1000000000).toFixed(2) + ' Tỷ';
+    if (val >= 1000000) return (val / 1000000).toFixed(2) + ' Triệu';
+    return formatNumber(val);
+}
+
+function setRankBadge(elementId, rank) {
+    const el = document.getElementById(elementId);
+    if (rank >= 80) {
+        el.className = 'badge bg-success';
+    } else if (rank >= 60) {
+        el.className = 'badge bg-info';
+    } else if (rank >= 40) {
+        el.className = 'badge bg-warning text-dark';
+    } else {
+        el.className = 'badge bg-danger';
+    }
+}
+
+function setMAValue(maId, maValue, price) {
+    document.getElementById(maId).textContent = formatNumber(maValue);
+    const statusEl = document.getElementById(maId + 'Status');
+    if (maValue > 0) {
+        if (price > maValue) {
+            statusEl.innerHTML = '<span class="badge bg-success">Above</span>';
+        } else {
+            statusEl.innerHTML = '<span class="badge bg-danger">Below</span>';
+        }
+    } else {
+        statusEl.textContent = '-';
+    }
+}
+
+function setBoolBadge(elementId, value, trueText, falseText) {
+    const el = document.getElementById(elementId);
+    if (value) {
+        el.textContent = trueText;
+        el.className = 'badge bg-success';
+    } else {
+        el.textContent = falseText;
+        el.className = 'badge bg-danger';
+    }
+}
+</script>
+{{ end }}
+
+{{ template "layout.html" . }}
