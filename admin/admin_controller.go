@@ -443,6 +443,60 @@ func (ac *AdminController) UpdateUserRoleAction(c *gin.Context) {
 }
 
 // =============================================================================
+// STOCK INDICATORS LOOKUP
+// =============================================================================
+
+// StockIndicatorsPage shows the stock indicator search page
+func (ac *AdminController) StockIndicatorsPage(c *gin.Context) {
+	adminUser := ac.getAdminUser(c)
+
+	c.HTML(http.StatusOK, "stock_indicators.html", gin.H{
+		"adminUser": adminUser,
+		"page":      "stock_indicators",
+		"title":     "Stock Indicators",
+	})
+}
+
+// SearchStockIndicators searches for a stock and returns its indicators
+func (ac *AdminController) SearchStockIndicators(c *gin.Context) {
+	code := c.Query("code")
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Stock code is required"})
+		return
+	}
+
+	// Load indicator summary
+	if services.GlobalIndicatorService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Indicator service not initialized"})
+		return
+	}
+
+	summary, err := services.GlobalIndicatorService.LoadIndicatorSummary()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load indicators: " + err.Error()})
+		return
+	}
+
+	// Find stock in summary
+	indicator, exists := summary.Stocks[code]
+	if !exists {
+		// Try to calculate on-the-fly
+		if services.GlobalPriceService != nil {
+			priceFile, err := services.GlobalPriceService.LoadStockPrice(code)
+			if err == nil && priceFile != nil {
+				indicator = services.CalculateIndicatorsForStock(priceFile)
+			}
+		}
+		if indicator == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Stock not found or no price data available for: " + code})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, indicator)
+}
+
+// =============================================================================
 // SIGNAL CONDITIONS MANAGEMENT
 // =============================================================================
 
