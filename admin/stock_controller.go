@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 
 	"go_backend_project/services"
 
@@ -469,6 +470,7 @@ func (ctrl *StockController) FilterStocks(c *gin.Context) {
 
 // GetTopRSStocks handles GET /admin/api/indicators/top-rs - returns top RS ranked stocks
 // Supports flexible filtering via query parameters:
+// - codes (comma-separated stock codes to filter, e.g., "VNM,FPT,VIC")
 // - rs_avg_min, rs_3d_min, rs_1m_min, rs_3m_min, rs_1y_min (RS rank filters)
 // - macd_hist_min, macd_hist_max (MACD histogram filters)
 // - price_min, price_max (current price filters in 1000 VND units)
@@ -506,6 +508,19 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 	ma10AboveMA30 := c.Query("ma10_above_ma30") == "true"
 	ma50AboveMA200 := c.Query("ma50_above_ma200") == "true"
 
+	// Stock codes filter (comma-separated)
+	codesParam := c.Query("codes")
+	var filterCodes map[string]bool
+	if codesParam != "" {
+		filterCodes = make(map[string]bool)
+		for _, code := range strings.Split(codesParam, ",") {
+			code = strings.TrimSpace(strings.ToUpper(code))
+			if code != "" {
+				filterCodes[code] = true
+			}
+		}
+	}
+
 	summary, err := services.GlobalIndicatorService.LoadIndicatorSummary()
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Indicator summary not found"})
@@ -521,6 +536,11 @@ func (ctrl *StockController) GetTopRSStocks(c *gin.Context) {
 	var stocks []stockRS
 	for code, ind := range summary.Stocks {
 		if ind == nil {
+			continue
+		}
+
+		// Apply Stock Codes Filter (if specified)
+		if filterCodes != nil && !filterCodes[code] {
 			continue
 		}
 
