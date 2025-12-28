@@ -44,32 +44,32 @@ type MetaInfo struct {
 
 // StockSignalSummary is an optimized signal summary for frontend
 type StockSignalSummary struct {
-	Code        string  `json:"code"`
-	SignalType  string  `json:"signal_type"`
-	Strength    float64 `json:"strength"`
-	Confidence  float64 `json:"confidence"`
-	Price       float64 `json:"price"`
-	PriceChange float64 `json:"price_change"`
-	TargetPrice float64 `json:"target_price"`
-	StopLoss    float64 `json:"stop_loss"`
-	RSAvg       float64 `json:"rs_avg"`
-	RSI         float64 `json:"rsi"`
-	MACD        float64 `json:"macd"`
-	AvgVol      float64 `json:"avg_vol"`
+	Code        string   `json:"code"`
+	SignalType  string   `json:"signal_type"`
+	Strength    int      `json:"strength"`
+	Confidence  float64  `json:"confidence"`
+	Price       float64  `json:"price"`
+	PriceChange float64  `json:"price_change"`
+	TargetPrice float64  `json:"target_price"`
+	StopLoss    float64  `json:"stop_loss"`
+	RSAvg       float64  `json:"rs_avg"`
+	RSI         float64  `json:"rsi"`
+	MACD        float64  `json:"macd"`
+	AvgVol      float64  `json:"avg_vol"`
 	Reasons     []string `json:"reasons"`
+	Strategy    string   `json:"strategy"`
 }
 
 // SignalStats contains signal statistics
 type SignalStats struct {
-	TotalStocks   int            `json:"total_stocks"`
-	StrongBuy     int            `json:"strong_buy"`
-	Buy           int            `json:"buy"`
-	Hold          int            `json:"hold"`
-	Sell          int            `json:"sell"`
-	StrongSell    int            `json:"strong_sell"`
-	AvgStrength   float64        `json:"avg_strength"`
-	TopSectors    map[string]int `json:"top_sectors,omitempty"`
-	UpdatedAt     string         `json:"updated_at"`
+	TotalStocks int     `json:"total_stocks"`
+	StrongBuy   int     `json:"strong_buy"`
+	Buy         int     `json:"buy"`
+	Hold        int     `json:"hold"`
+	Sell        int     `json:"sell"`
+	StrongSell  int     `json:"strong_sell"`
+	AvgStrength float64 `json:"avg_strength"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 
 // RegisterPublicSignalRoutes registers optimized public signal routes
@@ -120,35 +120,32 @@ func (ctrl *PublicSignalController) GetSignals(c *gin.Context) {
 	// Parse filters
 	strategy := c.DefaultQuery("strategy", "composite")
 	signalType := c.Query("signal_type")
-	minStrength, _ := strconv.ParseFloat(c.DefaultQuery("min_strength", "0"), 64)
+	minStrength, _ := strconv.Atoi(c.DefaultQuery("min_strength", "0"))
 	minConfidence, _ := strconv.ParseFloat(c.DefaultQuery("min_confidence", "0"), 64)
 	minTradingVal, _ := strconv.ParseFloat(c.DefaultQuery("min_trading_val", "1"), 64)
 
-	// Get all signals
-	allSignals, err := signals.GlobalSignalService.GetAllSignals(strategy)
+	// Build filter
+	filter := &signals.SignalFilter{
+		MinStrength:   minStrength,
+		MinConfidence: minConfidence,
+		MinTradingVal: minTradingVal,
+	}
+
+	if signalType != "" {
+		filter.SignalTypes = []signals.SignalType{signals.SignalType(signalType)}
+	}
+
+	// Generate all signals
+	allSignals, err := signals.GlobalSignalService.GenerateAllSignals(strategy, filter)
 	if err != nil {
 		ctrl.errorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Filter signals
+	// Convert to summaries
 	var filtered []StockSignalSummary
-	for code, sig := range allSignals {
-		// Apply filters
-		if signalType != "" && sig.Type != signalType {
-			continue
-		}
-		if sig.Strength < minStrength {
-			continue
-		}
-		if sig.Confidence < minConfidence {
-			continue
-		}
-		if sig.Indicators != nil && sig.Indicators.AvgTradingVal < minTradingVal {
-			continue
-		}
-
-		summary := ctrl.convertToSummary(code, sig)
+	for _, sig := range allSignals {
+		summary := ctrl.convertToSummary(sig)
 		filtered = append(filtered, summary)
 	}
 
@@ -192,7 +189,7 @@ func (ctrl *PublicSignalController) GetStockSignal(c *gin.Context) {
 	code := strings.ToUpper(c.Param("code"))
 	strategy := c.DefaultQuery("strategy", "composite")
 
-	signal, err := signals.GlobalSignalService.GetSignal(code, strategy)
+	signal, err := signals.GlobalSignalService.GenerateSignal(code, strategy)
 	if err != nil {
 		ctrl.errorResponse(c, http.StatusNotFound, "Stock not found: "+code)
 		return
@@ -201,17 +198,14 @@ func (ctrl *PublicSignalController) GetStockSignal(c *gin.Context) {
 	// Get additional indicator data
 	var indicators *services.ExtendedStockIndicators
 	if services.GlobalIndicatorService != nil {
-		summary, err := services.GlobalIndicatorService.LoadIndicatorSummary()
-		if err == nil && summary.Stocks != nil {
-			indicators = summary.Stocks[code]
-		}
+		indicators, _ = services.GlobalIndicatorService.GetStockIndicators(code)
 	}
 
 	response := gin.H{
-		"code":        code,
-		"signal":      signal,
-		"indicators":  indicators,
-		"strategy":    strategy,
+		"code":         code,
+		"signal":       signal,
+		"indicators":   indicators,
+		"strategy":     strategy,
 		"generated_at": time.Now().Format(time.RFC3339),
 	}
 
@@ -232,49 +226,37 @@ func (ctrl *PublicSignalController) GetTopSignals(c *gin.Context) {
 	}
 	minTradingVal, _ := strconv.ParseFloat(c.DefaultQuery("min_trading_val", "5"), 64)
 
-	allSignals, err := signals.GlobalSignalService.GetAllSignals("composite")
-	if err != nil {
-		ctrl.errorResponse(c, http.StatusInternalServerError, err.Error())
-		return
-	}
+	// Get buy signals
+	buySignals, _ := signals.GlobalSignalService.GetBuySignals(50, limit*2)
+	// Get sell signals
+	sellSignals, _ := signals.GlobalSignalService.GetSellSignals(50, limit*2)
 
-	var buySignals, sellSignals []StockSignalSummary
+	var topBuy, topSell []StockSignalSummary
 
-	for code, sig := range allSignals {
-		if sig.Indicators != nil && sig.Indicators.AvgTradingVal < minTradingVal {
-			continue
-		}
-
-		summary := ctrl.convertToSummary(code, sig)
-
-		if sig.Type == "BUY" || sig.Type == "STRONG_BUY" {
-			buySignals = append(buySignals, summary)
-		} else if sig.Type == "SELL" || sig.Type == "STRONG_SELL" {
-			sellSignals = append(sellSignals, summary)
+	for _, sig := range buySignals {
+		if sig.Indicators != nil && sig.Indicators.AvgTradingVal >= minTradingVal {
+			topBuy = append(topBuy, ctrl.convertToSummary(sig))
 		}
 	}
 
-	// Sort by strength
-	sort.Slice(buySignals, func(i, j int) bool {
-		return buySignals[i].Strength > buySignals[j].Strength
-	})
-	sort.Slice(sellSignals, func(i, j int) bool {
-		return sellSignals[i].Strength < sellSignals[j].Strength
-	})
-
-	// Limit results
-	if len(buySignals) > limit {
-		buySignals = buySignals[:limit]
+	for _, sig := range sellSignals {
+		if sig.Indicators != nil && sig.Indicators.AvgTradingVal >= minTradingVal {
+			topSell = append(topSell, ctrl.convertToSummary(sig))
+		}
 	}
-	if len(sellSignals) > limit {
-		sellSignals = sellSignals[:limit]
+
+	if len(topBuy) > limit {
+		topBuy = topBuy[:limit]
+	}
+	if len(topSell) > limit {
+		topSell = topSell[:limit]
 	}
 
 	ctrl.successResponse(c, gin.H{
-		"top_buy":  buySignals,
-		"top_sell": sellSignals,
+		"top_buy":  topBuy,
+		"top_sell": topSell,
 	}, &MetaInfo{
-		Total:     len(buySignals) + len(sellSignals),
+		Total:     len(topBuy) + len(topSell),
 		Strategy:  "composite",
 		UpdatedAt: time.Now().Format(time.RFC3339),
 	})
@@ -288,7 +270,7 @@ func (ctrl *PublicSignalController) GetSignalStats(c *gin.Context) {
 		return
 	}
 
-	allSignals, err := signals.GlobalSignalService.GetAllSignals("composite")
+	allSignals, err := signals.GlobalSignalService.GenerateAllSignals("composite", nil)
 	if err != nil {
 		ctrl.errorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -299,25 +281,25 @@ func (ctrl *PublicSignalController) GetSignalStats(c *gin.Context) {
 		UpdatedAt:   time.Now().Format(time.RFC3339),
 	}
 
-	var totalStrength float64
+	var totalStrength int
 	for _, sig := range allSignals {
 		totalStrength += sig.Strength
-		switch sig.Type {
-		case "STRONG_BUY":
+		switch sig.Signal {
+		case signals.SignalStrongBuy:
 			stats.StrongBuy++
-		case "BUY":
+		case signals.SignalBuy:
 			stats.Buy++
-		case "HOLD":
+		case signals.SignalHold:
 			stats.Hold++
-		case "SELL":
+		case signals.SignalSell:
 			stats.Sell++
-		case "STRONG_SELL":
+		case signals.SignalStrongSell:
 			stats.StrongSell++
 		}
 	}
 
 	if stats.TotalStocks > 0 {
-		stats.AvgStrength = totalStrength / float64(stats.TotalStocks)
+		stats.AvgStrength = float64(totalStrength) / float64(stats.TotalStocks)
 	}
 
 	ctrl.successResponse(c, stats, nil)
@@ -326,15 +308,20 @@ func (ctrl *PublicSignalController) GetSignalStats(c *gin.Context) {
 // GetStrategies returns available strategies
 // GET /api/v1/signals/strategies
 func (ctrl *PublicSignalController) GetStrategies(c *gin.Context) {
+	var strategyList []string
+	if signals.GlobalSignalService != nil {
+		strategyList = signals.GlobalSignalService.GetStrategies()
+	}
+
 	strategies := []gin.H{
 		{
 			"name":        "composite",
 			"description": "Combines all strategies with weighted scoring",
 			"weights": gin.H{
-				"momentum":       0.30,
+				"momentum":        0.30,
 				"trend_following": 0.35,
-				"mean_reversion": 0.15,
-				"breakout":       0.20,
+				"mean_reversion":  0.15,
+				"breakout":        0.20,
 			},
 			"recommended": true,
 		},
@@ -360,7 +347,10 @@ func (ctrl *PublicSignalController) GetStrategies(c *gin.Context) {
 		},
 	}
 
-	ctrl.successResponse(c, strategies, nil)
+	ctrl.successResponse(c, gin.H{
+		"strategies": strategies,
+		"available":  strategyList,
+	}, nil)
 }
 
 // GetStrategySignals returns signals for a specific strategy
@@ -377,24 +367,19 @@ func (ctrl *PublicSignalController) GetStrategySignals(c *gin.Context) {
 		limit = 20
 	}
 
-	allSignals, err := signals.GlobalSignalService.GetAllSignals(strategyName)
+	filter := &signals.SignalFilter{
+		Limit: limit,
+	}
+
+	allSignals, err := signals.GlobalSignalService.GenerateAllSignals(strategyName, filter)
 	if err != nil {
 		ctrl.errorResponse(c, http.StatusBadRequest, "Invalid strategy: "+strategyName)
 		return
 	}
 
 	var results []StockSignalSummary
-	for code, sig := range allSignals {
-		results = append(results, ctrl.convertToSummary(code, sig))
-	}
-
-	// Sort by strength
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Strength > results[j].Strength
-	})
-
-	if len(results) > limit {
-		results = results[:limit]
+	for _, sig := range allSignals {
+		results = append(results, ctrl.convertToSummary(sig))
 	}
 
 	ctrl.successResponse(c, results, &MetaInfo{
@@ -406,13 +391,13 @@ func (ctrl *PublicSignalController) GetStrategySignals(c *gin.Context) {
 // GetBuySignals returns top buy signals
 // GET /api/v1/signals/screener/buy?min_strength=70&min_trading_val=10&limit=20
 func (ctrl *PublicSignalController) GetBuySignals(c *gin.Context) {
-	ctrl.getFilteredSignals(c, []string{"BUY", "STRONG_BUY"}, true)
+	ctrl.getFilteredSignals(c, []signals.SignalType{signals.SignalBuy, signals.SignalStrongBuy}, true)
 }
 
 // GetSellSignals returns top sell signals
 // GET /api/v1/signals/screener/sell?min_strength=30&limit=20
 func (ctrl *PublicSignalController) GetSellSignals(c *gin.Context) {
-	ctrl.getFilteredSignals(c, []string{"SELL", "STRONG_SELL"}, false)
+	ctrl.getFilteredSignals(c, []signals.SignalType{signals.SignalSell, signals.SignalStrongSell}, false)
 }
 
 // GetMomentumStocks returns stocks with high momentum
@@ -485,12 +470,12 @@ func (ctrl *PublicSignalController) GetOversoldStocks(c *gin.Context) {
 	for code, ind := range summary.Stocks {
 		if ind.RSI <= maxRSI && ind.RSI > 0 {
 			results = append(results, gin.H{
-				"code":         code,
-				"rsi":          ind.RSI,
-				"price":        ind.CurrentPrice,
-				"ma50":         ind.MA50,
+				"code":          code,
+				"rsi":           ind.RSI,
+				"price":         ind.CurrentPrice,
+				"ma50":          ind.MA50,
 				"price_vs_ma50": (ind.CurrentPrice - ind.MA50) / ind.MA50 * 100,
-				"rs_avg":       ind.RSAvg,
+				"rs_avg":        ind.RSAvg,
 			})
 		}
 	}
@@ -568,21 +553,13 @@ func (ctrl *PublicSignalController) GetStockIndicators(c *gin.Context) {
 
 	code := strings.ToUpper(c.Param("code"))
 
-	summary, err := services.GlobalIndicatorService.LoadIndicatorSummary()
+	ind, err := services.GlobalIndicatorService.GetStockIndicators(code)
 	if err != nil {
-		ctrl.errorResponse(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	ind, exists := summary.Stocks[code]
-	if !exists {
 		ctrl.errorResponse(c, http.StatusNotFound, "Stock not found: "+code)
 		return
 	}
 
-	ctrl.successResponse(c, ind, &MetaInfo{
-		UpdatedAt: summary.UpdatedAt,
-	})
+	ctrl.successResponse(c, ind, nil)
 }
 
 // GetAllIndicators returns paginated indicators for all stocks
@@ -655,40 +632,28 @@ func (ctrl *PublicSignalController) GetAllIndicators(c *gin.Context) {
 
 // Helper methods
 
-func (ctrl *PublicSignalController) getFilteredSignals(c *gin.Context, types []string, sortDesc bool) {
+func (ctrl *PublicSignalController) getFilteredSignals(c *gin.Context, types []signals.SignalType, sortDesc bool) {
 	if signals.GlobalSignalService == nil {
 		ctrl.errorResponse(c, http.StatusServiceUnavailable, "Signal service not available")
 		return
 	}
 
-	minStrength, _ := strconv.ParseFloat(c.DefaultQuery("min_strength", "0"), 64)
+	minStrength, _ := strconv.Atoi(c.DefaultQuery("min_strength", "0"))
 	minTradingVal, _ := strconv.ParseFloat(c.DefaultQuery("min_trading_val", "1"), 64)
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
-	allSignals, _ := signals.GlobalSignalService.GetAllSignals("composite")
+	filter := &signals.SignalFilter{
+		MinStrength:   minStrength,
+		MinTradingVal: minTradingVal,
+		SignalTypes:   types,
+		Limit:         limit * 2, // Get more to filter
+	}
+
+	allSignals, _ := signals.GlobalSignalService.GenerateAllSignals("composite", filter)
 
 	var results []StockSignalSummary
-	for code, sig := range allSignals {
-		// Filter by type
-		typeMatch := false
-		for _, t := range types {
-			if sig.Type == t {
-				typeMatch = true
-				break
-			}
-		}
-		if !typeMatch {
-			continue
-		}
-
-		if sig.Strength < minStrength {
-			continue
-		}
-		if sig.Indicators != nil && sig.Indicators.AvgTradingVal < minTradingVal {
-			continue
-		}
-
-		results = append(results, ctrl.convertToSummary(code, sig))
+	for _, sig := range allSignals {
+		results = append(results, ctrl.convertToSummary(sig))
 	}
 
 	// Sort
@@ -709,16 +674,17 @@ func (ctrl *PublicSignalController) getFilteredSignals(c *gin.Context, types []s
 	})
 }
 
-func (ctrl *PublicSignalController) convertToSummary(code string, sig *signals.Signal) StockSignalSummary {
+func (ctrl *PublicSignalController) convertToSummary(sig *signals.TradingSignal) StockSignalSummary {
 	summary := StockSignalSummary{
-		Code:        code,
-		SignalType:  sig.Type,
+		Code:        sig.Code,
+		SignalType:  string(sig.Signal),
 		Strength:    sig.Strength,
 		Confidence:  sig.Confidence,
 		Price:       sig.Price,
 		TargetPrice: sig.TargetPrice,
 		StopLoss:    sig.StopLoss,
 		Reasons:     sig.Reasons,
+		Strategy:    sig.Strategy,
 	}
 
 	if sig.Indicators != nil {
