@@ -691,8 +691,7 @@ func (ctrl *PublicSignalController) convertToSummary(sig *signals.TradingSignal)
 		summary.RSAvg = sig.Indicators.RSAvg
 		summary.RSI = sig.Indicators.RSI
 		summary.MACD = sig.Indicators.MACDHist
-		summary.AvgVol = sig.Indicators.AvgVol
-		summary.PriceChange = sig.Indicators.PriceChange
+		summary.AvgVol = sig.Indicators.AvgTradingVal // Use AvgTradingVal as volume proxy
 	}
 
 	return summary
