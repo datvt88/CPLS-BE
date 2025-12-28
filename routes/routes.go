@@ -200,6 +200,10 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 		// Signal routes - using new SignalController with algorithmic trading strategies
 		controllers.RegisterSignalRoutes(api)
 
+		// Public Signal API routes - optimized for frontend consumption
+		publicSignalController := controllers.NewPublicSignalController()
+		publicSignalController.RegisterPublicSignalRoutes(api)
+
 		// Trading routes
 		trading := api.Group("/trading")
 		{
