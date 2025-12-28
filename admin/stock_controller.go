@@ -1,7 +1,10 @@
 package admin
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -815,5 +818,182 @@ func (ctrl *StockController) RestoreFromMongoDB(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Successfully restored all data from MongoDB Atlas",
+	})
+}
+
+// ==================== API Status & File Management ====================
+
+// FileStatus represents the status of a data file
+type FileStatus struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Exists   bool   `json:"exists"`
+	Size     string `json:"size,omitempty"`
+	Records  int    `json:"records,omitempty"`
+	Modified string `json:"modified,omitempty"`
+}
+
+// APIStatusPage handles GET /admin/api-status - displays API status page
+func (ctrl *StockController) APIStatusPage(c *gin.Context) {
+	c.HTML(http.StatusOK, "api_status.html", gin.H{
+		"Title":     "API Status",
+		"AdminUser": c.GetString("admin_username"),
+		"page":      "api_status",
+	})
+}
+
+// GetFilesStatus handles GET /admin/api/files/status - returns status of all data files
+func (ctrl *StockController) GetFilesStatus(c *gin.Context) {
+	files := []FileStatus{
+		ctrl.checkFile("stocks_list.json", "data/stocks_list.json", "stock_list"),
+		ctrl.checkFile("indicators_summary.json", "data/indicators_summary.json", "indicators"),
+		ctrl.checkFile("price_sync_config.json", "data/price_sync_config.json", "config"),
+	}
+
+	// Check stock price files
+	priceDir := "data/stocks"
+	priceFiles := ctrl.countPriceFiles(priceDir)
+
+	files = append(files, FileStatus{
+		Name:    "Stock Price Files",
+		Path:    priceDir,
+		Exists:  priceFiles > 0,
+		Records: priceFiles,
+		Size:    fmt.Sprintf("%d files", priceFiles),
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"files": files,
+	})
+}
+
+// checkFile checks if a file exists and returns its status
+func (ctrl *StockController) checkFile(name, path, fileType string) FileStatus {
+	status := FileStatus{
+		Name:   name,
+		Path:   path,
+		Exists: false,
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return status
+	}
+
+	status.Exists = true
+	status.Size = ctrl.formatSize(info.Size())
+	status.Modified = info.ModTime().Format("2006-01-02 15:04:05")
+
+	// Count records based on file type
+	switch fileType {
+	case "stock_list":
+		stocks, err := services.LoadStocksFromFile()
+		if err == nil {
+			status.Records = len(stocks)
+		}
+	case "indicators":
+		if services.GlobalIndicatorService != nil {
+			summary, err := services.GlobalIndicatorService.LoadIndicatorSummary()
+			if err == nil && summary.Stocks != nil {
+				status.Records = len(summary.Stocks)
+			}
+		}
+	}
+
+	return status
+}
+
+// countPriceFiles counts the number of price files in a directory
+func (ctrl *StockController) countPriceFiles(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			count++
+		}
+	}
+	return count
+}
+
+// formatSize formats file size in human-readable format
+func (ctrl *StockController) formatSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+// ViewFile handles GET /admin/api/files/view - returns file content (first 100 records)
+func (ctrl *StockController) ViewFile(c *gin.Context) {
+	path := c.Query("path")
+	if path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		return
+	}
+
+	// Security check - only allow files in data directory
+	if !strings.HasPrefix(path, "data/") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		return
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+
+	// Parse and return JSON
+	var result interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse JSON"})
+		return
+	}
+
+	// Limit array results
+	if arr, ok := result.([]interface{}); ok && len(arr) > 100 {
+		result = gin.H{
+			"total":   len(arr),
+			"showing": 100,
+			"data":    arr[:100],
+		}
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// TogglePublicAPI handles POST /admin/api/toggle-public-api - enables/disables public API
+func (ctrl *StockController) TogglePublicAPI(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Store API enabled state (in-memory for now)
+	services.SetPublicAPIEnabled(req.Enabled)
+
+	status := "disabled"
+	if req.Enabled {
+		status = "enabled"
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("Public API %s", status),
+		"enabled": req.Enabled,
 	})
 }

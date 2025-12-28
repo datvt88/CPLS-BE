@@ -1,0 +1,443 @@
+{{ define "content" }}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h4><i class="bi bi-activity"></i> API Status & Data Files</h4>
+            <button class="btn btn-primary" onclick="refreshStatus()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- API Status Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card h-100" id="card-api">
+            <div class="card-body text-center">
+                <i class="bi bi-globe fs-1 text-muted" id="icon-api"></i>
+                <h5 class="mt-2">Public API</h5>
+                <span class="badge bg-secondary" id="status-api">Checking...</span>
+                <div class="mt-2">
+                    <button class="btn btn-sm btn-outline-success" onclick="toggleAPI(true)" id="btn-enable-api">
+                        <i class="bi bi-play-fill"></i> Enable
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="toggleAPI(false)" id="btn-disable-api">
+                        <i class="bi bi-stop-fill"></i> Disable
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100" id="card-signal">
+            <div class="card-body text-center">
+                <i class="bi bi-broadcast fs-1 text-muted" id="icon-signal"></i>
+                <h5 class="mt-2">Signal Service</h5>
+                <span class="badge bg-secondary" id="status-signal">Checking...</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100" id="card-indicator">
+            <div class="card-body text-center">
+                <i class="bi bi-graph-up fs-1 text-muted" id="icon-indicator"></i>
+                <h5 class="mt-2">Indicator Service</h5>
+                <span class="badge bg-secondary" id="status-indicator">Checking...</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100" id="card-mongodb">
+            <div class="card-body text-center">
+                <i class="bi bi-database fs-1 text-muted" id="icon-mongodb"></i>
+                <h5 class="mt-2">MongoDB Atlas</h5>
+                <span class="badge bg-secondary" id="status-mongodb">Checking...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Data Files Status -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-file-earmark-code"></i> Data Files Status</h5>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary me-2" onclick="syncFromMongoDB()">
+                        <i class="bi bi-cloud-download"></i> Restore from MongoDB
+                    </button>
+                    <button class="btn btn-sm btn-outline-success" onclick="syncToMongoDB()">
+                        <i class="bi bi-cloud-upload"></i> Backup to MongoDB
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="files-table">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Path</th>
+                                <th>Status</th>
+                                <th>Size</th>
+                                <th>Records</th>
+                                <th>Last Modified</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="files-tbody">
+                            <tr>
+                                <td colspan="7" class="text-center">
+                                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                                    Loading...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Endpoints Test -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-link-45deg"></i> API Endpoints Test</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Health Checks</h6>
+                        <div class="list-group list-group-flush" id="health-endpoints">
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><code>GET /api/v1/health</code></span>
+                                <button class="btn btn-sm btn-outline-primary" onclick="testEndpoint('/api/v1/health', this)">
+                                    Test
+                                </button>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><code>GET /api/v1/health/db</code></span>
+                                <button class="btn btn-sm btn-outline-primary" onclick="testEndpoint('/api/v1/health/db', this)">
+                                    Test
+                                </button>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><code>GET /health</code></span>
+                                <button class="btn btn-sm btn-outline-primary" onclick="testEndpoint('/health', this)">
+                                    Test
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Signal API</h6>
+                        <div class="list-group list-group-flush" id="signal-endpoints">
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><code>GET /api/v1/signals/stats</code></span>
+                                <button class="btn btn-sm btn-outline-primary" onclick="testEndpoint('/api/v1/signals/stats', this)">
+                                    Test
+                                </button>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><code>GET /api/v1/signals/strategies</code></span>
+                                <button class="btn btn-sm btn-outline-primary" onclick="testEndpoint('/api/v1/signals/strategies', this)">
+                                    Test
+                                </button>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><code>GET /api/v1/signals/top</code></span>
+                                <button class="btn btn-sm btn-outline-primary" onclick="testEndpoint('/api/v1/signals/top', this)">
+                                    Test
+                                </button>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><code>GET /api/v1/signals/indicators</code></span>
+                                <button class="btn btn-sm btn-outline-primary" onclick="testEndpoint('/api/v1/signals/indicators?page=1&page_size=5', this)">
+                                    Test
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Response Modal -->
+<div class="modal fade" id="responseModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">API Response</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="response-content" class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast for notifications -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+    <div id="toast" class="toast" role="alert">
+        <div class="toast-header">
+            <strong class="me-auto" id="toast-title">Notification</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+        </div>
+        <div class="toast-body" id="toast-body"></div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+let apiEnabled = true;
+
+// Refresh all status
+function refreshStatus() {
+    checkAPIHealth();
+    loadFilesStatus();
+}
+
+// Check API health
+async function checkAPIHealth() {
+    try {
+        const response = await fetch('/api/v1/health');
+        const data = await response.json();
+
+        // Update API status
+        updateStatus('api', response.ok ? 'success' : 'warning', response.ok ? 'Online' : 'Degraded');
+
+        // Update Signal Service
+        if (data.signal_service === 'available') {
+            updateStatus('signal', 'success', 'Available');
+        } else {
+            updateStatus('signal', 'warning', 'Not Initialized');
+        }
+
+        // Update Indicator Service
+        if (data.indicator_service === 'available') {
+            updateStatus('indicator', 'success', 'Available');
+        } else {
+            updateStatus('indicator', 'warning', 'Not Initialized');
+        }
+
+        // Update MongoDB
+        if (data.mongodb === 'connected') {
+            updateStatus('mongodb', 'success', 'Connected');
+        } else {
+            updateStatus('mongodb', 'danger', 'Not Connected');
+        }
+
+    } catch (error) {
+        updateStatus('api', 'danger', 'Offline');
+        updateStatus('signal', 'secondary', 'Unknown');
+        updateStatus('indicator', 'secondary', 'Unknown');
+        updateStatus('mongodb', 'secondary', 'Unknown');
+    }
+}
+
+function updateStatus(service, type, text) {
+    const badge = document.getElementById(`status-${service}`);
+    const icon = document.getElementById(`icon-${service}`);
+
+    badge.className = `badge bg-${type}`;
+    badge.textContent = text;
+
+    // Update icon color
+    icon.classList.remove('text-muted', 'text-success', 'text-warning', 'text-danger');
+    if (type === 'success') icon.classList.add('text-success');
+    else if (type === 'warning') icon.classList.add('text-warning');
+    else if (type === 'danger') icon.classList.add('text-danger');
+    else icon.classList.add('text-muted');
+}
+
+// Load files status
+async function loadFilesStatus() {
+    try {
+        const response = await fetch('/admin/api/files/status');
+        const data = await response.json();
+
+        const tbody = document.getElementById('files-tbody');
+
+        if (data.files && data.files.length > 0) {
+            tbody.innerHTML = data.files.map(file => `
+                <tr>
+                    <td>
+                        <i class="bi ${file.exists ? 'bi-file-earmark-check text-success' : 'bi-file-earmark-x text-danger'}"></i>
+                        <strong>${file.name}</strong>
+                    </td>
+                    <td><code class="small">${file.path}</code></td>
+                    <td>
+                        <span class="badge bg-${file.exists ? 'success' : 'danger'}">
+                            ${file.exists ? 'Exists' : 'Missing'}
+                        </span>
+                    </td>
+                    <td>${file.size || '-'}</td>
+                    <td>${file.records !== undefined ? file.records.toLocaleString() : '-'}</td>
+                    <td>${file.modified || '-'}</td>
+                    <td>
+                        ${file.exists ? `
+                            <button class="btn btn-sm btn-outline-info" onclick="viewFile('${file.path}')">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        ` : `
+                            <button class="btn btn-sm btn-outline-warning" onclick="createFile('${file.name}')">
+                                <i class="bi bi-plus-lg"></i> Create
+                            </button>
+                        `}
+                    </td>
+                </tr>
+            `).join('');
+        } else {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="text-center text-muted">
+                        No data files found. Sync data to create files.
+                    </td>
+                </tr>
+            `;
+        }
+    } catch (error) {
+        document.getElementById('files-tbody').innerHTML = `
+            <tr>
+                <td colspan="7" class="text-center text-danger">
+                    Error loading file status: ${error.message}
+                </td>
+            </tr>
+        `;
+    }
+}
+
+// Toggle API
+async function toggleAPI(enable) {
+    try {
+        const response = await fetch('/admin/api/toggle-public-api', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: enable })
+        });
+        const data = await response.json();
+
+        apiEnabled = enable;
+        showToast(enable ? 'API Enabled' : 'API Disabled', data.message, enable ? 'success' : 'warning');
+        refreshStatus();
+    } catch (error) {
+        showToast('Error', error.message, 'danger');
+    }
+}
+
+// Test endpoint
+async function testEndpoint(url, btn) {
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    btn.disabled = true;
+
+    try {
+        const start = Date.now();
+        const response = await fetch(url);
+        const elapsed = Date.now() - start;
+        const data = await response.json();
+
+        // Show response in modal
+        document.getElementById('response-content').textContent =
+            `// ${response.status} ${response.statusText} (${elapsed}ms)\n\n` +
+            JSON.stringify(data, null, 2);
+
+        new bootstrap.Modal(document.getElementById('responseModal')).show();
+
+        // Update button
+        btn.innerHTML = `<i class="bi bi-check-circle text-success"></i> ${elapsed}ms`;
+        setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 2000);
+
+    } catch (error) {
+        btn.innerHTML = `<i class="bi bi-x-circle text-danger"></i> Error`;
+        setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 2000);
+    }
+}
+
+// View file
+async function viewFile(path) {
+    try {
+        const response = await fetch(`/admin/api/files/view?path=${encodeURIComponent(path)}`);
+        const data = await response.json();
+
+        document.getElementById('response-content').textContent = JSON.stringify(data, null, 2);
+        new bootstrap.Modal(document.getElementById('responseModal')).show();
+    } catch (error) {
+        showToast('Error', error.message, 'danger');
+    }
+}
+
+// Create file
+async function createFile(name) {
+    if (name === 'stocks_list.json') {
+        if (confirm('Sync stock list from VNDirect API?')) {
+            window.location.href = '/admin/stocks';
+        }
+    } else if (name === 'indicators_summary.json') {
+        if (confirm('Calculate indicators? This requires stock price data.')) {
+            try {
+                const response = await fetch('/admin/api/indicators/calculate', { method: 'POST' });
+                const data = await response.json();
+                showToast('Success', data.message || 'Indicators calculated', 'success');
+                refreshStatus();
+            } catch (error) {
+                showToast('Error', error.message, 'danger');
+            }
+        }
+    }
+}
+
+// Sync from MongoDB
+async function syncFromMongoDB() {
+    if (!confirm('Restore all data from MongoDB Atlas? This will overwrite local files.')) return;
+
+    try {
+        const response = await fetch('/admin/api/mongodb/restore-from', { method: 'POST' });
+        const data = await response.json();
+        showToast('Success', data.message || 'Data restored from MongoDB', 'success');
+        refreshStatus();
+    } catch (error) {
+        showToast('Error', error.message, 'danger');
+    }
+}
+
+// Sync to MongoDB
+async function syncToMongoDB() {
+    if (!confirm('Backup all local data to MongoDB Atlas?')) return;
+
+    try {
+        const response = await fetch('/admin/api/mongodb/sync-to', { method: 'POST' });
+        const data = await response.json();
+        showToast('Success', data.message || 'Data synced to MongoDB', 'success');
+        refreshStatus();
+    } catch (error) {
+        showToast('Error', error.message, 'danger');
+    }
+}
+
+// Show toast
+function showToast(title, message, type) {
+    const toast = document.getElementById('toast');
+    document.getElementById('toast-title').textContent = title;
+    document.getElementById('toast-body').textContent = message;
+    toast.className = `toast bg-${type} text-white`;
+    new bootstrap.Toast(toast).show();
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    refreshStatus();
+    // Auto-refresh every 30 seconds
+    setInterval(refreshStatus, 30000);
+});
+</script>
+{{ end }}

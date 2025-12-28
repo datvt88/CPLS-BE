@@ -432,6 +432,9 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 			// Stock Management Pages
 			protected.GET("/stocks", stockCtrl.ListStocks)
 
+			// API Status Page
+			protected.GET("/api-status", stockCtrl.APIStatusPage)
+
 			// User Management API
 			userAPI := protected.Group("/api/users")
 			{
@@ -517,6 +520,16 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				mongoAPI.POST("/restore-from", stockCtrl.RestoreFromMongoDB)
 				mongoAPI.POST("/reconnect", stockCtrl.ReconnectMongoDB)
 			}
+
+			// Files Status API
+			filesAPI := protected.Group("/api/files")
+			{
+				filesAPI.GET("/status", stockCtrl.GetFilesStatus)
+				filesAPI.GET("/view", stockCtrl.ViewFile)
+			}
+
+			// Public API Toggle
+			protected.POST("/api/toggle-public-api", stockCtrl.TogglePublicAPI)
 		}
 
 		// WebSocket endpoint (outside auth middleware for direct connection)
