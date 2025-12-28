@@ -1,0 +1,20 @@
+[project]
+id = "cpls-be"
+name = "CPLS Backend"
+version = "1.0.0"
+
+[build]
+builder = "gcr.io/buildpacks/builder:google-22"
+
+[[build.env]]
+name = "GOOGLE_BUILDABLE"
+value = "."
+
+[[build.env]]
+name = "GOOGLE_GO_BUILD_ARGS"
+value = "-mod=mod"
+
+# Include admin templates in the build
+[[build.env]]
+name = "GOOGLE_CLEAR_SOURCE"
+value = "false"

@@ -1,16 +1,25 @@
 steps:
-  # Build Docker image using Artifact Registry (recommended)
-  - name: 'gcr.io/cloud-builders/docker'
+  # Build using Buildpacks
+  - name: 'gcr.io/k8s-skaffold/pack'
+    id: Buildpack
     args:
       - 'build'
-      - '-t'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
-      - '-t'
+      - '--builder=gcr.io/buildpacks/builder:google-22'
+      - '--env=GOOGLE_BUILDABLE=.'
+      - '--env=GOOGLE_GO_BUILD_ARGS=-mod=mod'
+
+  # Tag as latest
+  - name: 'gcr.io/cloud-builders/docker'
+    id: Tag
+    args:
+      - 'tag'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:latest'
-      - '.'
 
   # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
+    id: Push
     args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be']
 
   # Deploy to Cloud Run - Optimized for Public Signal API
@@ -88,4 +97,4 @@ images:
 options:
   logging: CLOUD_LOGGING_ONLY
 
-timeout: 1200s
+timeout: 1800s
