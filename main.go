@@ -15,6 +15,7 @@ import (
 
 	"go_backend_project/admin"
 	"go_backend_project/config"
+	"go_backend_project/controllers"
 	"go_backend_project/models"
 	"go_backend_project/routes"
 	"go_backend_project/scheduler"
@@ -522,6 +523,49 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 		adminRoutes.GET("/ws/realtime", stockCtrl.HandleRealtimeWebSocket)
 	}
 
+	// Public Signal API routes (no auth required for frontend)
+	// These work without database - use GlobalSignalService and GlobalIndicatorService
+	api := router.Group("/api/v1")
+	{
+		// Health check for Signal API
+		api.GET("/health", func(c *gin.Context) {
+			status := gin.H{
+				"status":    "ok",
+				"service":   "CPLS Signal API",
+				"timestamp": time.Now().Format(time.RFC3339),
+			}
+
+			// Check Signal Service
+			if signals.GlobalSignalService != nil {
+				status["signal_service"] = "available"
+			} else {
+				status["signal_service"] = "not_initialized"
+			}
+
+			// Check Indicator Service
+			if services.GlobalIndicatorService != nil {
+				status["indicator_service"] = "available"
+			} else {
+				status["indicator_service"] = "not_initialized"
+			}
+
+			// Check MongoDB
+			if services.GlobalMongoClient != nil && services.GlobalMongoClient.IsConfigured() {
+				status["mongodb"] = "connected"
+			} else {
+				status["mongodb"] = "not_connected"
+			}
+
+			c.JSON(http.StatusOK, status)
+		})
+
+		// Public Signal API - optimized for frontend consumption
+		publicSignalController := controllers.NewPublicSignalController()
+		publicSignalController.RegisterPublicSignalRoutes(api)
+	}
+
+	log.Println("Public Signal API routes registered")
+
 	// API health check for Supabase mode
 	router.GET("/api/v1/health/db", func(c *gin.Context) {
 		if connectionError != "" {
@@ -596,6 +640,7 @@ func corsMiddleware() gin.HandlerFunc {
 	corsOrigins := os.Getenv("CORS_ORIGINS")
 	allowedOrigins := make(map[string]bool)
 
+	// Parse allowed origins
 	if corsOrigins != "" {
 		for _, origin := range strings.Split(corsOrigins, ",") {
 			origin = strings.TrimSpace(origin)
@@ -605,22 +650,41 @@ func corsMiddleware() gin.HandlerFunc {
 		}
 	}
 
+	// Log CORS configuration on startup
+	if len(allowedOrigins) > 0 {
+		log.Printf("CORS: Allowing origins: %v", corsOrigins)
+	} else {
+		log.Println("CORS: No restrictions configured, allowing all origins")
+	}
+
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
-		// Check if origin is allowed or if no restrictions configured
-		if len(allowedOrigins) == 0 || allowedOrigins[origin] {
+		// Determine which origin to allow
+		if len(allowedOrigins) == 0 {
+			// No restrictions - allow all origins
 			if origin != "" {
 				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			} else {
 				c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 			}
+		} else if allowedOrigins[origin] {
+			// Origin is in allowed list
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		} else if origin != "" {
+			// Origin not allowed - still set header but with first allowed origin
+			// This prevents silent failures, browser will show clear CORS error
+			for allowedOrigin := range allowedOrigins {
+				c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+				break
+			}
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
