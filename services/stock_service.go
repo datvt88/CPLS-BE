@@ -19,6 +19,24 @@ const VNDirectAPIURL = "https://api-finfo.vndirect.com.vn/v4/stocks?q=type:stock
 // StockListFile is the local file for stocks data
 const StockListFile = "data/stocks_list.json"
 
+// publicAPIEnabled controls whether the public API is enabled
+var publicAPIEnabled = true
+
+// SetPublicAPIEnabled sets the public API enabled state
+func SetPublicAPIEnabled(enabled bool) {
+	publicAPIEnabled = enabled
+	if enabled {
+		log.Println("Public API enabled")
+	} else {
+		log.Println("Public API disabled")
+	}
+}
+
+// IsPublicAPIEnabled returns whether the public API is enabled
+func IsPublicAPIEnabled() bool {
+	return publicAPIEnabled
+}
+
 // VNDirectResponse represents the response from VNDirect API
 type VNDirectResponse struct {
 	Data []VNDirectStock `json:"data"`
