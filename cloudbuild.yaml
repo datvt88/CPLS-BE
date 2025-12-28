@@ -1,15 +1,19 @@
 steps:
-  # Build Docker image
+  # Build Docker image using Artifact Registry (recommended)
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/cpls-be', '.']
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:latest'
+      - '.'
 
-  # Push to Container Registry
+  # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/cpls-be']
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be']
 
-  # Deploy to Cloud Run with environment variables for Supabase
-  # Note: Set substitution variables in Cloud Build trigger or use Secret Manager
-  # Required substitutions: _DB_HOST, _DB_PASSWORD, _JWT_SECRET
+  # Deploy to Cloud Run - Optimized for Public Signal API
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
     id: Deploy
     entrypoint: gcloud
@@ -17,31 +21,71 @@ steps:
       - 'run'
       - 'deploy'
       - 'cpls-be'
-      - '--image=gcr.io/$PROJECT_ID/cpls-be'
-      - '--region=asia-southeast1'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
+      - '--region=${_REGION}'
       - '--platform=managed'
       - '--allow-unauthenticated'
-      - '--memory=512Mi'
-      - '--cpu=1'
-      - '--timeout=300'
+      # Resource allocation optimized for Signal API processing
+      - '--memory=1Gi'
+      - '--cpu=2'
+      - '--timeout=60'
       - '--port=8080'
+      # Concurrency settings for API performance
+      - '--concurrency=100'
+      - '--max-instances=10'
+      - '--min-instances=0'
+      # Startup and health check
+      - '--cpu-boost'
+      # Environment variables
       - '--set-env-vars=ENVIRONMENT=production'
+      - '--set-env-vars=GIN_MODE=release'
+      # PostgreSQL (Supabase) for Admin Users
       - '--set-env-vars=DB_HOST=${_DB_HOST}'
       - '--set-env-vars=DB_PORT=5432'
       - '--set-env-vars=DB_USER=postgres'
       - '--set-env-vars=DB_PASSWORD=${_DB_PASSWORD}'
       - '--set-env-vars=DB_NAME=postgres'
+      # MongoDB Atlas for Stock Data & Signals
+      - '--set-env-vars=MONGODB_URI=${_MONGODB_URI}'
+      - '--set-env-vars=MONGODB_DATABASE=${_MONGODB_DATABASE}'
+      # JWT Authentication
       - '--set-env-vars=JWT_SECRET=${_JWT_SECRET}'
+      # CORS - Frontend domains (comma-separated)
+      - '--set-env-vars=CORS_ORIGINS=${_CORS_ORIGINS}'
+      # API Configuration
+      - '--set-env-vars=REQUIRE_API_AUTH=false'
 
-# Substitution variables - MUST be configured in Cloud Build trigger
+# ============================================================================
+# SUBSTITUTION VARIABLES - Configure in Cloud Build Trigger
+# ============================================================================
 # Go to: Cloud Console > Cloud Build > Triggers > Edit > Substitution variables
-# Required:
-#   _DB_HOST: Your Supabase database host (e.g., db.xxxxxxxxxxxxx.supabase.co)
-#   _DB_PASSWORD: Your Supabase database password
-#   _JWT_SECRET: Strong random secret for JWT (generate with: openssl rand -base64 32)
+#
+# Required variables:
+#   _REGION:           Deployment region (e.g., asia-southeast1)
+#   _DB_HOST:          Supabase PostgreSQL host (e.g., db.xxxxx.supabase.co)
+#   _DB_PASSWORD:      Supabase database password
+#   _JWT_SECRET:       JWT secret (generate: openssl rand -base64 32)
+#   _MONGODB_URI:      MongoDB Atlas connection string
+#   _MONGODB_DATABASE: MongoDB database name (e.g., cpls_stock)
+#   _CORS_ORIGINS:     Allowed origins (e.g., https://your-frontend.com,http://localhost:3000)
+#
+# ============================================================================
 substitutions:
-  _DB_HOST: 'db.xxxxxxxxxxxxx.supabase.co'
+  _REGION: 'asia-southeast1'
+  _DB_HOST: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
   _DB_PASSWORD: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
   _JWT_SECRET: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
+  _MONGODB_URI: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
+  _MONGODB_DATABASE: 'cpls_stock'
+  _CORS_ORIGINS: 'http://localhost:3000'
 
-timeout: 900s
+# Artifact Registry repository must exist before build
+# Create with: gcloud artifacts repositories create cpls --repository-format=docker --location=asia-southeast1
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s
