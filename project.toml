@@ -1,7 +1,0 @@
-[project]
-id = "cpls-be"
-name = "CPLS Backend"
-
-[[build.env]]
-name = "GOOGLE_BUILDABLE"
-value = "."
