@@ -79,19 +79,10 @@ func main() {
 		log.Printf("Warning: Failed to load templates: %v", err)
 	}
 
-	// Initialize FAST local services first (non-blocking)
-	initFastLocalServices()
-
-	// Initialize connection (Supabase auth) - needed for routes
-	initializeConnection(router)
-
-	// Setup basic routes
+	// Setup basic routes FIRST (health checks)
 	setupBasicRoutes(router)
 
-	// Setup admin login routes
-	setupAdminLoginRoutes(router)
-
-	// Start server FIRST - Cloud Run needs port to be listening quickly
+	// Start server IMMEDIATELY - Cloud Run needs port to be listening quickly
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%s", cfg.Port),
 		Handler: router,
@@ -104,7 +95,23 @@ func main() {
 		}
 	}()
 
-	log.Println("=== Server is ready ===")
+	// Give server time to start listening
+	time.Sleep(100 * time.Millisecond)
+	log.Println("=== Server is listening ===")
+
+	// Initialize services and routes in background
+	go func() {
+		// Initialize FAST local services
+		initFastLocalServices()
+
+		// Initialize connection (Supabase auth) - needed for routes
+		initializeConnection(router)
+
+		// Setup admin login routes
+		setupAdminLoginRoutes(router)
+
+		log.Println("=== All routes configured ===")
+	}()
 
 	// Initialize SLOW services in background (MongoDB, data restore)
 	go initSlowServices()
