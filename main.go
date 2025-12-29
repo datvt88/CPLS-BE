@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"go_backend_project/admin"
+	"go_backend_project/admin/templates"
 	"go_backend_project/config"
 	"go_backend_project/controllers"
 	"go_backend_project/models"
@@ -612,14 +613,23 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 	})
 }
 
-// loadTemplates loads HTML templates
+// loadTemplates loads HTML templates from embedded filesystem
 func loadTemplates(router *gin.Engine) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("template loading panic: %v", r)
 		}
 	}()
-	router.LoadHTMLGlob("admin/templates/*.html")
+
+	// Parse templates from embedded filesystem
+	tmpl := template.New("").Funcs(router.FuncMap)
+	tmpl, err = tmpl.ParseFS(templates.TemplateFS, "*.html")
+	if err != nil {
+		return fmt.Errorf("failed to parse embedded templates: %v", err)
+	}
+
+	router.SetHTMLTemplate(tmpl)
+	log.Println("Templates loaded from embedded filesystem")
 	return nil
 }
 
