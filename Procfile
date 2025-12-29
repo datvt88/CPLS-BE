@@ -1,1 +1,1 @@
-web: ./go_backend_project
+web: go_backend_project
