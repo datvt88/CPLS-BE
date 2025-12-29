@@ -7,5 +7,5 @@ name = "GOOGLE_BUILDABLE"
 value = "."
 
 [[build.env]]
-name = "GOOGLE_GO_BUILD_OUTPUT"
-value = "main"
+name = "GOOGLE_GO_BUILD_ARGS"
+value = "-mod=mod"
