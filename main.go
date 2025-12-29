@@ -31,26 +31,93 @@ var globalDB *gorm.DB
 var globalScheduler *scheduler.Scheduler
 var globalSupabaseAuthController *admin.SupabaseAuthController
 var authControllerMutex sync.RWMutex
-var connectionError string // Store connection error message
+var connectionError string
 
 func main() {
 	log.Println("=== CPLS Backend Starting ===")
 
-	// Load config
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		log.Fatalf("LoadConfig failed: %v", err)
+	// Get port from environment - CRITICAL for Cloud Run
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
 
 	// Set Gin mode
 	gin.SetMode(gin.ReleaseMode)
 
-	// Create router
+	// Create minimal router
 	router := gin.New()
 	router.Use(gin.Recovery())
+
+	// Setup health check IMMEDIATELY
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+	router.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok", "message": "CPLS Backend API"})
+	})
+
+	// Start server IMMEDIATELY
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: router,
+	}
+
+	go func() {
+		log.Printf("Server listening on port %s", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	// Give server time to bind port
+	time.Sleep(50 * time.Millisecond)
+	log.Println("=== Server is listening ===")
+
+	// Initialize everything else in background
+	go initializeApp(router)
+
+	// Wait for shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down...")
+	shutdownServices()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server.Shutdown(ctx)
+}
+
+func initializeApp(router *gin.Engine) {
+	log.Println("Initializing application...")
+
+	// Load config
+	_, err := config.LoadConfig()
+	if err != nil {
+		log.Printf("Warning: LoadConfig failed: %v", err)
+	}
+
+	// Add CORS middleware
 	router.Use(corsMiddleware())
 
-	// Load templates
+	// Setup templates
+	setupTemplates(router)
+
+	// Initialize services
+	initServices()
+
+	// Initialize connection and routes
+	initializeConnection(router)
+
+	// Setup admin login routes
+	setupAdminLoginRoutes(router)
+
+	log.Println("=== Application initialized ===")
+}
+
+func setupTemplates(router *gin.Engine) {
 	router.SetFuncMap(template.FuncMap{
 		"add":      func(a, b int) int { return a + b },
 		"sub":      func(a, b int) int { return a - b },
@@ -75,303 +142,144 @@ func main() {
 			return s[start:end]
 		},
 	})
-	if err := loadTemplates(router); err != nil {
-		log.Printf("Warning: Failed to load templates: %v", err)
+
+	// Load embedded templates
+	tmpl := template.New("").Funcs(router.FuncMap)
+	tmpl, err := tmpl.ParseFS(templates.TemplateFS, "*.html")
+	if err != nil {
+		log.Printf("Warning: Failed to parse templates: %v", err)
+		return
 	}
-
-	// Setup basic routes FIRST (health checks)
-	setupBasicRoutes(router)
-
-	// Start server IMMEDIATELY - Cloud Run needs port to be listening quickly
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.Port),
-		Handler: router,
-	}
-
-	go func() {
-		log.Printf("Server starting on port %s", cfg.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
-		}
-	}()
-
-	// Give server time to start listening
-	time.Sleep(100 * time.Millisecond)
-	log.Println("=== Server is listening ===")
-
-	// Initialize services and routes in background
-	go func() {
-		// Initialize FAST local services
-		initFastLocalServices()
-
-		// Initialize connection (Supabase auth) - needed for routes
-		initializeConnection(router)
-
-		// Setup admin login routes
-		setupAdminLoginRoutes(router)
-
-		log.Println("=== All routes configured ===")
-	}()
-
-	// Initialize SLOW services in background (MongoDB, data restore)
-	go initSlowServices()
-
-	// Wait for shutdown signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down...")
-
-	if globalScheduler != nil {
-		globalScheduler.Stop()
-	}
-
-	// Stop Stock Scheduler
-	if services.GlobalStockScheduler != nil {
-		services.GlobalStockScheduler.Stop()
-	}
-
-	// Shutdown Realtime Price Service
-	if services.GlobalRealtimeService != nil {
-		services.GlobalRealtimeService.Shutdown()
-	}
-
-	// Close MongoDB connection
-	if services.GlobalMongoClient != nil {
-		if err := services.GlobalMongoClient.Close(); err != nil {
-			log.Printf("Error closing MongoDB: %v", err)
-		} else {
-			log.Println("MongoDB connection closed successfully")
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	server.Shutdown(ctx)
+	router.SetHTMLTemplate(tmpl)
+	log.Println("Templates loaded")
 }
 
-// initFastLocalServices initializes fast, non-blocking local services
-// These must complete quickly so the server can start listening on the port
-func initFastLocalServices() {
-	log.Println("Initializing fast local services...")
+func initServices() {
+	log.Println("Initializing services...")
 
-	// Initialize Stock Scheduler
+	// Initialize local services
 	if err := services.InitStockScheduler(); err != nil {
-		log.Printf("Warning: Failed to initialize Stock Scheduler: %v", err)
-	} else {
-		log.Println("Stock Scheduler initialized successfully")
+		log.Printf("Warning: Stock Scheduler: %v", err)
 	}
-
-	// Initialize Price Service
 	if err := services.InitPriceService(); err != nil {
-		log.Printf("Warning: Failed to initialize Price Service: %v", err)
-	} else {
-		log.Println("Price Service initialized successfully")
+		log.Printf("Warning: Price Service: %v", err)
 	}
-
-	// Initialize Indicator Service
 	if err := services.InitIndicatorService(); err != nil {
-		log.Printf("Warning: Failed to initialize Indicator Service: %v", err)
-	} else {
-		log.Println("Indicator Service initialized successfully")
+		log.Printf("Warning: Indicator Service: %v", err)
 	}
-
-	// Initialize Realtime Price Service (WebSocket)
 	if err := services.InitRealtimePriceService(); err != nil {
-		log.Printf("Warning: Failed to initialize Realtime Price Service: %v", err)
-	} else {
-		log.Println("Realtime Price Service initialized successfully")
+		log.Printf("Warning: Realtime Service: %v", err)
 	}
-
-	// Initialize Signal Service for algorithmic trading
 	if err := signals.InitSignalService(); err != nil {
-		log.Printf("Warning: Failed to initialize Signal Service: %v", err)
-	} else {
-		log.Println("Signal Service initialized successfully")
+		log.Printf("Warning: Signal Service: %v", err)
 	}
 
-	// Initialize Signal Condition Evaluator for custom conditions
-	// Note: This requires database connection, defer to after DB is ready
-	log.Println("Signal Condition Evaluator will be initialized after database connection")
+	// Initialize MongoDB in background
+	go func() {
+		if err := services.InitMongoDBClient(); err != nil {
+			log.Printf("Warning: MongoDB: %v", err)
+		} else if services.GlobalMongoClient != nil && services.GlobalMongoClient.IsConfigured() {
+			log.Println("MongoDB connected")
+			restoreDataFromMongoDB()
+		}
+	}()
 
-	log.Println("Fast local services initialized")
+	log.Println("Services initialized")
 }
 
-// initSlowServices initializes slow services in background after server starts
-// This includes MongoDB connection and data restoration which may take time
-func initSlowServices() {
-	log.Println("Initializing slow services in background...")
-
-	// Initialize MongoDB Atlas for cloud persistence (may timeout, run in background)
-	if err := services.InitMongoDBClient(); err != nil {
-		log.Printf("Warning: Failed to initialize MongoDB Atlas: %v", err)
-	} else if services.GlobalMongoClient != nil && services.GlobalMongoClient.IsConfigured() {
-		log.Println("MongoDB Atlas initialized successfully")
-
-		// Only restore data if MongoDB connected successfully
-		restoreDataFromMongoDB()
-	}
-
-	log.Println("Slow services initialization complete")
-}
-
-// restoreDataFromMongoDB restores data from MongoDB Atlas if local data is missing
 func restoreDataFromMongoDB() {
 	if services.GlobalMongoClient == nil || !services.GlobalMongoClient.IsConfigured() {
 		return
 	}
 
-	// 1. Restore stock list if local file is missing
 	stocks, err := services.LoadStocksFromFile()
 	if err != nil || len(stocks) == 0 {
-		log.Println("Local stock list not found, attempting restore from MongoDB Atlas...")
 		stocks, err := services.GlobalMongoClient.LoadStockList()
 		if err == nil && len(stocks) > 0 {
-			if err := services.SaveStocksToFile(stocks); err != nil {
-				log.Printf("Warning: Could not cache stock list locally: %v", err)
-			} else {
-				log.Printf("Restored %d stocks from MongoDB Atlas", len(stocks))
-			}
-		} else if err != nil {
-			log.Printf("Warning: Could not restore stock list from MongoDB: %v", err)
+			services.SaveStocksToFile(stocks)
+			log.Printf("Restored %d stocks from MongoDB", len(stocks))
 		}
 	}
 
-	// 2. Restore price data if local files are missing
 	if services.GlobalPriceService != nil && !services.GlobalPriceService.HasLocalPriceData() {
-		log.Println("Local price data not found, attempting restore from MongoDB Atlas...")
-		if err := services.GlobalPriceService.RestoreFromMongoDB(); err != nil {
-			log.Printf("Warning: Could not restore price data from MongoDB: %v", err)
-		}
-	}
-
-	// 3. Restore indicators from MongoDB if not cached locally
-	if services.GlobalIndicatorService != nil {
-		if _, err := services.GlobalIndicatorService.LoadIndicatorSummary(); err != nil {
-			log.Printf("Note: Indicators will be calculated when needed: %v", err)
-		}
+		services.GlobalPriceService.RestoreFromMongoDB()
 	}
 }
 
-// initializeConnection initializes database or Supabase connection
 func initializeConnection(router *gin.Engine) {
 	dbHost := os.Getenv("DB_HOST")
 	supabaseURL := os.Getenv("SUPABASE_URL")
 
-	// Supabase-only mode: no DB_HOST, only SUPABASE_URL
 	if dbHost == "" && supabaseURL != "" {
 		log.Println("Using Supabase-only mode...")
 		initSupabaseOnly(router)
 		return
 	}
 
-	// Direct database connection mode
 	if dbHost != "" {
 		log.Println("Using direct database connection...")
 		initDirectDB(router)
 		return
 	}
 
-	// No configuration - set error
-	connectionError = "No database configuration found. Please set SUPABASE_URL or DB_HOST in environment variables."
-	log.Println("ERROR: " + connectionError)
+	connectionError = "No database configuration found"
+	log.Println("Warning: " + connectionError)
 }
 
-// initSupabaseOnly initializes Supabase-only mode
 func initSupabaseOnly(router *gin.Engine) {
 	supabaseAuth, err := admin.NewSupabaseAuthController()
 	if err != nil {
-		connectionError = fmt.Sprintf("Failed to initialize Supabase: %v", err)
+		connectionError = fmt.Sprintf("Supabase init failed: %v", err)
 		log.Println("ERROR: " + connectionError)
 		return
 	}
 
-	// Test connection
 	if err := supabaseAuth.TestConnection(); err != nil {
-		connectionError = fmt.Sprintf("Failed to connect to Supabase: %v", err)
+		connectionError = fmt.Sprintf("Supabase connection failed: %v", err)
 		log.Println("ERROR: " + connectionError)
 		return
 	}
 
-	// Success - set global controller
 	authControllerMutex.Lock()
 	globalSupabaseAuthController = supabaseAuth
 	authControllerMutex.Unlock()
 
-	// Setup protected admin routes
 	setupSupabaseAdminRoutes(router, supabaseAuth)
-
-	log.Println("Supabase connection successful!")
+	log.Println("Supabase connected!")
 }
 
-// initDirectDB initializes direct database connection
 func initDirectDB(router *gin.Engine) {
 	db, err := config.InitDB()
 	if err != nil {
-		connectionError = fmt.Sprintf("Failed to connect to database: %v", err)
+		connectionError = fmt.Sprintf("Database connection failed: %v", err)
 		log.Println("ERROR: " + connectionError)
 		return
 	}
 
 	globalDB = db
-
-	// Run migrations
-	log.Println("Running migrations...")
 	runMigrations(globalDB)
 
-	// Initialize Signal Condition Evaluator (requires DB)
 	if err := signals.InitConditionEvaluator(globalDB); err != nil {
-		log.Printf("Warning: Failed to initialize Signal Condition Evaluator: %v", err)
-	} else {
-		log.Println("Signal Condition Evaluator initialized successfully")
+		log.Printf("Warning: Signal Condition Evaluator: %v", err)
 	}
 
-	// Setup full routes
 	routes.SetupRoutes(router, globalDB)
 
-	// Start scheduler
 	globalScheduler = scheduler.NewScheduler(globalDB)
 	globalScheduler.Start()
 
-	log.Println("Database connection successful!")
+	log.Println("Database connected!")
 }
 
-// setupBasicRoutes sets up health check and basic routes
-func setupBasicRoutes(router *gin.Engine) {
-	router.GET("/health", func(c *gin.Context) {
-		status := "ok"
-		if connectionError != "" {
-			status = "error"
-		}
-		c.JSON(200, gin.H{
-			"status":  status,
-			"message": connectionError,
-		})
-	})
-
-	router.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status":  "ok",
-			"message": "CPLS Backend API",
-		})
-	})
-}
-
-// setupAdminLoginRoutes sets up admin login routes
 func setupAdminLoginRoutes(router *gin.Engine) {
 	adminGroup := router.Group("/admin")
 	{
 		adminGroup.GET("/login", func(c *gin.Context) {
-			// Check if we have a connection error
 			if connectionError != "" {
-				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-					"error": connectionError,
-				})
+				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{"error": connectionError})
 				return
 			}
 
-			// Check for Supabase controller
 			authControllerMutex.RLock()
 			supabaseAC := globalSupabaseAuthController
 			authControllerMutex.RUnlock()
@@ -381,22 +289,15 @@ func setupAdminLoginRoutes(router *gin.Engine) {
 				return
 			}
 
-			// Should not reach here if properly initialized
-			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-				"error": "System not properly initialized",
-			})
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{"error": "System not initialized"})
 		})
 
 		adminGroup.POST("/login", func(c *gin.Context) {
-			// Check if we have a connection error
 			if connectionError != "" {
-				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-					"error": connectionError,
-				})
+				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{"error": connectionError})
 				return
 			}
 
-			// Check for Supabase controller
 			authControllerMutex.RLock()
 			supabaseAC := globalSupabaseAuthController
 			authControllerMutex.RUnlock()
@@ -406,16 +307,12 @@ func setupAdminLoginRoutes(router *gin.Engine) {
 				return
 			}
 
-			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-				"error": "System not properly initialized",
-			})
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{"error": "System not initialized"})
 		})
 	}
 }
 
-// setupSupabaseAdminRoutes sets up protected admin routes for Supabase mode
 func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAuthController) {
-	// Create controllers
 	supabaseClient := supabaseAuth.GetSupabaseClient()
 	userMgmtCtrl := admin.NewUserManagementController(supabaseClient)
 	stockCtrl := admin.NewStockController(supabaseClient)
@@ -425,7 +322,6 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 		protected := adminRoutes.Group("")
 		protected.Use(supabaseAuth.AuthMiddleware())
 		{
-			// Dashboard
 			protected.GET("", func(c *gin.Context) {
 				c.HTML(http.StatusOK, "dashboard_simple.html", gin.H{
 					"Title":     "CPLS Admin Dashboard",
@@ -433,28 +329,15 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				})
 			})
 			protected.GET("/logout", supabaseAuth.Logout)
-
-			// User Management Pages
 			protected.GET("/users", userMgmtCtrl.ListUsers)
-
-			// Stock Management Pages
 			protected.GET("/stocks", stockCtrl.ListStocks)
-
-			// API Status Page
 			protected.GET("/api-status", stockCtrl.APIStatusPage)
 
-			// User Management API
+			// User API
 			userAPI := protected.Group("/api/users")
 			{
 				userAPI.GET("", func(c *gin.Context) {
-					// API version of list users
-					page := 1
-					pageSize := 20
-					search := c.Query("search")
-					sortBy := c.DefaultQuery("sort_by", "created_at")
-					sortOrder := c.DefaultQuery("sort_order", "desc")
-
-					result, err := supabaseClient.GetProfiles(page, pageSize, search, sortBy, sortOrder)
+					result, err := supabaseClient.GetProfiles(1, 20, c.Query("search"), c.DefaultQuery("sort_by", "created_at"), c.DefaultQuery("sort_order", "desc"))
 					if err != nil {
 						c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 						return
@@ -475,7 +358,7 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				userAPI.POST("/:id/sync", userMgmtCtrl.SyncUser)
 			}
 
-			// Stock Management API
+			// Stock API
 			stockAPI := protected.Group("/api/stocks")
 			{
 				stockAPI.GET("/stats", stockCtrl.GetStats)
@@ -489,7 +372,7 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				stockAPI.DELETE("/:code", stockCtrl.DeleteStock)
 			}
 
-			// Price Data API
+			// Price API
 			priceAPI := protected.Group("/api/prices")
 			{
 				priceAPI.GET("/config", stockCtrl.GetPriceConfig)
@@ -502,7 +385,7 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				priceAPI.POST("/:code", stockCtrl.SyncSingleStockPrice)
 			}
 
-			// Technical Indicators API
+			// Indicator API
 			indicatorAPI := protected.Group("/api/indicators")
 			{
 				indicatorAPI.POST("/calculate", stockCtrl.CalculateAllIndicators)
@@ -512,7 +395,7 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				indicatorAPI.GET("/:code", stockCtrl.GetStockIndicators)
 			}
 
-			// Realtime Price API
+			// Realtime API
 			realtimeAPI := protected.Group("/api/realtime")
 			{
 				realtimeAPI.GET("/status", stockCtrl.GetRealtimeStatus)
@@ -520,7 +403,7 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				realtimeAPI.POST("/stop", stockCtrl.StopRealtimePolling)
 			}
 
-			// MongoDB Atlas API
+			// MongoDB API
 			mongoAPI := protected.Group("/api/mongodb")
 			{
 				mongoAPI.GET("/status", stockCtrl.GetMongoDBStatus)
@@ -529,148 +412,75 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 				mongoAPI.POST("/reconnect", stockCtrl.ReconnectMongoDB)
 			}
 
-			// Files Status API
+			// Files API
 			filesAPI := protected.Group("/api/files")
 			{
 				filesAPI.GET("/status", stockCtrl.GetFilesStatus)
 				filesAPI.GET("/view", stockCtrl.ViewFile)
 			}
 
-			// Public API Toggle
 			protected.POST("/api/toggle-public-api", stockCtrl.TogglePublicAPI)
 		}
 
-		// WebSocket endpoint (outside auth middleware for direct connection)
 		adminRoutes.GET("/ws/realtime", stockCtrl.HandleRealtimeWebSocket)
 	}
 
-	// Public Signal API routes (no auth required for frontend)
-	// These work without database - use GlobalSignalService and GlobalIndicatorService
+	// Public Signal API
 	api := router.Group("/api/v1")
 	{
-		// Health check for Signal API
 		api.GET("/health", func(c *gin.Context) {
-			status := gin.H{
+			c.JSON(http.StatusOK, gin.H{
 				"status":    "ok",
 				"service":   "CPLS Signal API",
 				"timestamp": time.Now().Format(time.RFC3339),
-			}
-
-			// Check Signal Service
-			if signals.GlobalSignalService != nil {
-				status["signal_service"] = "available"
-			} else {
-				status["signal_service"] = "not_initialized"
-			}
-
-			// Check Indicator Service
-			if services.GlobalIndicatorService != nil {
-				status["indicator_service"] = "available"
-			} else {
-				status["indicator_service"] = "not_initialized"
-			}
-
-			// Check MongoDB
-			if services.GlobalMongoClient != nil && services.GlobalMongoClient.IsConfigured() {
-				status["mongodb"] = "connected"
-			} else {
-				status["mongodb"] = "not_connected"
-			}
-
-			c.JSON(http.StatusOK, status)
+			})
 		})
 
-		// Public Signal API - optimized for frontend consumption
 		publicSignalController := controllers.NewPublicSignalController()
 		publicSignalController.RegisterPublicSignalRoutes(api)
 	}
 
-	log.Println("Public Signal API routes registered")
-
-	// API health check for Supabase mode
 	router.GET("/api/v1/health/db", func(c *gin.Context) {
 		if connectionError != "" {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":  "error",
-				"message": connectionError,
-			})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "message": connectionError})
 			return
 		}
-
-		client := supabaseAuth.GetSupabaseClient()
-		count, err := client.GetAdminUserCount()
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":  "error",
-				"message": fmt.Sprintf("Supabase error: %v", err),
-			})
-			return
-		}
-
-		// Get profile stats too
-		profileCount, _ := supabaseClient.GetProfileCount()
-
-		c.JSON(http.StatusOK, gin.H{
-			"status":       "ok",
-			"message":      "Supabase connection successful",
-			"admin_users":  count,
-			"profiles":     profileCount,
-			"db_connected": true,
-		})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "db_connected": true})
 	})
-}
 
-// loadTemplates loads HTML templates from embedded filesystem
-func loadTemplates(router *gin.Engine) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("template loading panic: %v", r)
-		}
-	}()
-
-	// Parse templates from embedded filesystem
-	tmpl := template.New("").Funcs(router.FuncMap)
-	tmpl, err = tmpl.ParseFS(templates.TemplateFS, "*.html")
-	if err != nil {
-		return fmt.Errorf("failed to parse embedded templates: %v", err)
-	}
-
-	router.SetHTMLTemplate(tmpl)
-	log.Println("Templates loaded from embedded filesystem")
-	return nil
+	log.Println("All routes registered")
 }
 
 func runMigrations(db *gorm.DB) {
-	if err := models.MigrateStockModels(db); err != nil {
-		log.Printf("MigrateStockModels: %v", err)
-	}
-	if err := models.MigrateTradingModels(db); err != nil {
-		log.Printf("MigrateTradingModels: %v", err)
-	}
-	if err := models.MigrateSignalConditionModels(db); err != nil {
-		log.Printf("MigrateSignalConditionModels: %v", err)
-	}
-	if err := models.MigrateUserModels(db); err != nil {
-		log.Printf("MigrateUserModels: %v", err)
-	}
-	if err := models.MigrateSubscriptionModels(db); err != nil {
-		log.Printf("MigrateSubscriptionModels: %v", err)
-	}
-	if err := models.MigrateAdminModels(db); err != nil {
-		log.Printf("MigrateAdminModels: %v", err)
-	}
-	if err := models.SeedDefaultAdminUser(db); err != nil {
-		log.Printf("SeedDefaultAdminUser: %v", err)
-	}
+	models.MigrateStockModels(db)
+	models.MigrateTradingModels(db)
+	models.MigrateSignalConditionModels(db)
+	models.MigrateUserModels(db)
+	models.MigrateSubscriptionModels(db)
+	models.MigrateAdminModels(db)
+	models.SeedDefaultAdminUser(db)
 	log.Println("Migrations completed")
 }
 
+func shutdownServices() {
+	if globalScheduler != nil {
+		globalScheduler.Stop()
+	}
+	if services.GlobalStockScheduler != nil {
+		services.GlobalStockScheduler.Stop()
+	}
+	if services.GlobalRealtimeService != nil {
+		services.GlobalRealtimeService.Shutdown()
+	}
+	if services.GlobalMongoClient != nil {
+		services.GlobalMongoClient.Close()
+	}
+}
+
 func corsMiddleware() gin.HandlerFunc {
-	// Get allowed origins from environment variable (comma-separated)
 	corsOrigins := os.Getenv("CORS_ORIGINS")
 	allowedOrigins := make(map[string]bool)
 
-	// Parse allowed origins
 	if corsOrigins != "" {
 		for _, origin := range strings.Split(corsOrigins, ",") {
 			origin = strings.TrimSpace(origin)
@@ -680,41 +490,23 @@ func corsMiddleware() gin.HandlerFunc {
 		}
 	}
 
-	// Log CORS configuration on startup
-	if len(allowedOrigins) > 0 {
-		log.Printf("CORS: Allowing origins: %v", corsOrigins)
-	} else {
-		log.Println("CORS: No restrictions configured, allowing all origins")
-	}
-
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
-		// Determine which origin to allow
 		if len(allowedOrigins) == 0 {
-			// No restrictions - allow all origins
 			if origin != "" {
 				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			} else {
 				c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 			}
 		} else if allowedOrigins[origin] {
-			// Origin is in allowed list
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-		} else if origin != "" {
-			// Origin not allowed - still set header but with first allowed origin
-			// This prevents silent failures, browser will show clear CORS error
-			for allowedOrigin := range allowedOrigins {
-				c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-				break
-			}
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
