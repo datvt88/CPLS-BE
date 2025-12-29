@@ -1,14 +1,21 @@
 steps:
-  # Build Docker image using Dockerfile (includes templates)
-  - name: 'gcr.io/cloud-builders/docker'
-    id: Build
+  # Build using Buildpacks
+  - name: 'gcr.io/k8s-skaffold/pack'
+    id: Buildpack
     args:
       - 'build'
-      - '-t'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
-      - '-t'
+      - '--builder=gcr.io/buildpacks/builder:google-22'
+      - '--env=GOOGLE_BUILDABLE=.'
+      - '--env=GOOGLE_GO_BUILD_ARGS=-mod=mod'
+
+  # Tag as latest
+  - name: 'gcr.io/cloud-builders/docker'
+    id: Tag
+    args:
+      - 'tag'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:latest'
-      - '.'
 
   # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -36,7 +43,6 @@ steps:
       - '--concurrency=100'
       - '--max-instances=10'
       - '--min-instances=0'
-      # Startup probe - give more time to start
       - '--cpu-boost'
       # Environment variables
       - '--set-env-vars=ENVIRONMENT=production'

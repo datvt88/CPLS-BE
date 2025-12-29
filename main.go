@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"go_backend_project/admin"
+	"go_backend_project/admin/templates"
 	"go_backend_project/config"
 	"go_backend_project/controllers"
 	"go_backend_project/models"
@@ -78,19 +79,10 @@ func main() {
 		log.Printf("Warning: Failed to load templates: %v", err)
 	}
 
-	// Initialize FAST local services first (non-blocking)
-	initFastLocalServices()
-
-	// Initialize connection (Supabase auth) - needed for routes
-	initializeConnection(router)
-
-	// Setup basic routes
+	// Setup basic routes FIRST (health checks)
 	setupBasicRoutes(router)
 
-	// Setup admin login routes
-	setupAdminLoginRoutes(router)
-
-	// Start server FIRST - Cloud Run needs port to be listening quickly
+	// Start server IMMEDIATELY - Cloud Run needs port to be listening quickly
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%s", cfg.Port),
 		Handler: router,
@@ -103,7 +95,23 @@ func main() {
 		}
 	}()
 
-	log.Println("=== Server is ready ===")
+	// Give server time to start listening
+	time.Sleep(100 * time.Millisecond)
+	log.Println("=== Server is listening ===")
+
+	// Initialize services and routes in background
+	go func() {
+		// Initialize FAST local services
+		initFastLocalServices()
+
+		// Initialize connection (Supabase auth) - needed for routes
+		initializeConnection(router)
+
+		// Setup admin login routes
+		setupAdminLoginRoutes(router)
+
+		log.Println("=== All routes configured ===")
+	}()
 
 	// Initialize SLOW services in background (MongoDB, data restore)
 	go initSlowServices()
@@ -612,14 +620,23 @@ func setupSupabaseAdminRoutes(router *gin.Engine, supabaseAuth *admin.SupabaseAu
 	})
 }
 
-// loadTemplates loads HTML templates
+// loadTemplates loads HTML templates from embedded filesystem
 func loadTemplates(router *gin.Engine) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("template loading panic: %v", r)
 		}
 	}()
-	router.LoadHTMLGlob("admin/templates/*.html")
+
+	// Parse templates from embedded filesystem
+	tmpl := template.New("").Funcs(router.FuncMap)
+	tmpl, err = tmpl.ParseFS(templates.TemplateFS, "*.html")
+	if err != nil {
+		return fmt.Errorf("failed to parse embedded templates: %v", err)
+	}
+
+	router.SetHTMLTemplate(tmpl)
+	log.Println("Templates loaded from embedded filesystem")
 	return nil
 }
 
