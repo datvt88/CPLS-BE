@@ -1,21 +1,14 @@
 steps:
-  # Build using Buildpacks
-  - name: 'gcr.io/k8s-skaffold/pack'
-    id: Buildpack
+  # Build using Dockerfile
+  - name: 'gcr.io/cloud-builders/docker'
+    id: Build
     args:
       - 'build'
+      - '-t'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
-      - '--builder=gcr.io/buildpacks/builder:google-22'
-      - '--env=GOOGLE_BUILDABLE=.'
-      - '--env=GOOGLE_GO_BUILD_ARGS=-mod=mod'
-
-  # Tag as latest
-  - name: 'gcr.io/cloud-builders/docker'
-    id: Tag
-    args:
-      - 'tag'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
+      - '-t'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:latest'
+      - '.'
 
   # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -34,42 +27,19 @@ steps:
       - '--region=${_REGION}'
       - '--platform=managed'
       - '--allow-unauthenticated'
-      # Resource allocation
       - '--memory=1Gi'
-      - '--cpu=2'
+      - '--cpu=1'
       - '--timeout=60'
       - '--port=8080'
-      # Concurrency and scaling
-      - '--concurrency=100'
+      - '--concurrency=80'
       - '--max-instances=10'
       - '--min-instances=0'
       - '--cpu-boost'
-      # Environment variables
       - '--set-env-vars=ENVIRONMENT=production'
       - '--set-env-vars=GIN_MODE=release'
-      # PostgreSQL (Supabase)
-      - '--set-env-vars=DB_HOST=${_DB_HOST}'
-      - '--set-env-vars=DB_PORT=5432'
-      - '--set-env-vars=DB_USER=postgres'
-      - '--set-env-vars=DB_PASSWORD=${_DB_PASSWORD}'
-      - '--set-env-vars=DB_NAME=postgres'
-      # MongoDB Atlas
-      - '--set-env-vars=MONGODB_URI=${_MONGODB_URI}'
-      - '--set-env-vars=MONGODB_DATABASE=${_MONGODB_DATABASE}'
-      # JWT
-      - '--set-env-vars=JWT_SECRET=${_JWT_SECRET}'
-      # CORS
-      - '--set-env-vars=CORS_ORIGINS=${_CORS_ORIGINS}'
-      - '--set-env-vars=REQUIRE_API_AUTH=false'
 
 substitutions:
   _REGION: 'asia-southeast1'
-  _DB_HOST: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
-  _DB_PASSWORD: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
-  _JWT_SECRET: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
-  _MONGODB_URI: 'CONFIGURE_IN_CLOUD_BUILD_TRIGGER'
-  _MONGODB_DATABASE: 'cpls_stock'
-  _CORS_ORIGINS: 'http://localhost:3000'
 
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
@@ -78,4 +48,4 @@ images:
 options:
   logging: CLOUD_LOGGING_ONLY
 
-timeout: 1800s
+timeout: 1200s
