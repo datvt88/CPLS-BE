@@ -129,11 +129,16 @@ func deriveFromSupabaseURL(supabaseURL string, config *Config) {
 func InitDB() (*gorm.DB, error) {
 	if AppConfig.DBHost == "" {
 		log.Println("ERROR: DB_HOST is empty")
-		return nil, fmt.Errorf("DB_HOST is empty - please configure database connection. Set DB_HOST environment variable to your Supabase database host (e.g., db.xxxxxxxxxxxxx.supabase.co)")
+		log.Println("HINT: Set DATABASE_URL from Supabase Dashboard -> Project Settings -> Database -> Connection string")
+		log.Println("HINT: Or set DB_HOST to db.[project-id].supabase.co")
+		return nil, fmt.Errorf("DB_HOST is empty - Add DATABASE_URL env var from Supabase Dashboard")
 	}
 	if AppConfig.DBPassword == "" {
 		log.Println("ERROR: DB_PASSWORD is empty")
-		return nil, fmt.Errorf("DB_PASSWORD is empty - please configure database password. Set DB_PASSWORD environment variable in Cloud Run or Cloud Build")
+		log.Println("HINT: DATABASE_URL should include password, or set DB_PASSWORD separately")
+		log.Println("HINT: Get password from Supabase Dashboard -> Project Settings -> Database")
+		log.Println("NOTE: SUPABASE_SERVICE_KEY and SUPABASE_ANON_KEY are API keys, NOT database password")
+		return nil, fmt.Errorf("DB_PASSWORD is empty - Add DATABASE_URL with password from Supabase Dashboard")
 	}
 
 	// URL encode password to handle special characters
