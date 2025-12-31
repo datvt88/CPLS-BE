@@ -1,51 +1,94 @@
+# Cloud Build configuration for CPLS Backend
+# This file configures the CI/CD pipeline for Google Cloud Run deployment
+
 steps:
-  # Build using Dockerfile
+  # Step 1: Build Docker image
   - name: 'gcr.io/cloud-builders/docker'
-    id: Build
+    id: 'Build'
     args:
       - 'build'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$COMMIT_SHA'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:latest'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:latest'
+      - '--cache-from'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:latest'
       - '.'
 
-  # Push to Artifact Registry
+  # Step 2: Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    id: Push
-    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be']
+    id: 'Push'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}'
 
-  # Deploy to Cloud Run
+  # Step 3: Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
-    id: Deploy
+    id: 'Deploy'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'cpls-be'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
+      - '${_SERVICE_NAME}'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$COMMIT_SHA'
       - '--region=${_REGION}'
       - '--platform=managed'
       - '--allow-unauthenticated'
-      - '--memory=1Gi'
-      - '--cpu=1'
-      - '--timeout=60'
-      - '--port=8080'
-      - '--concurrency=80'
-      - '--max-instances=10'
-      - '--min-instances=0'
+      # Resource configuration
+      - '--memory=${_MEMORY}'
+      - '--cpu=${_CPU}'
+      - '--timeout=${_TIMEOUT}'
+      - '--concurrency=${_CONCURRENCY}'
+      - '--max-instances=${_MAX_INSTANCES}'
+      - '--min-instances=${_MIN_INSTANCES}'
+      # Performance optimizations
       - '--cpu-boost'
+      - '--execution-environment=gen2'
+      # Port configuration
+      - '--port=8080'
+      # Environment variables
       - '--set-env-vars=ENVIRONMENT=production'
       - '--set-env-vars=GIN_MODE=release'
+      - '--set-env-vars=TZ=Asia/Ho_Chi_Minh'
+      # Secrets from Secret Manager (format: ENV_VAR=secret-name:version)
+      - '--set-secrets=DB_HOST=cpls-db-host:latest'
+      - '--set-secrets=DB_PORT=cpls-db-port:latest'
+      - '--set-secrets=DB_USER=cpls-db-user:latest'
+      - '--set-secrets=DB_PASSWORD=cpls-db-password:latest'
+      - '--set-secrets=DB_NAME=cpls-db-name:latest'
+      - '--set-secrets=JWT_SECRET=cpls-jwt-secret:latest'
+      - '--set-secrets=SUPABASE_URL=cpls-supabase-url:latest'
+      - '--set-secrets=SUPABASE_ANON_KEY=cpls-supabase-anon-key:latest'
+      - '--set-secrets=SUPABASE_SERVICE_KEY=cpls-supabase-service-key:latest'
+      - '--set-secrets=SUPABASE_JWT_SECRET=cpls-supabase-jwt-secret:latest'
+      - '--set-secrets=ADMIN_DEFAULT_USERNAME=cpls-admin-username:latest'
+      - '--set-secrets=ADMIN_DEFAULT_PASSWORD=cpls-admin-password:latest'
+      # Health check configuration
+      - '--startup-cpu-boost'
 
+# Substitution variables with defaults
 substitutions:
   _REGION: 'asia-southeast1'
+  _REPO_NAME: 'cpls'
+  _SERVICE_NAME: 'cpls-be'
+  _MEMORY: '1Gi'
+  _CPU: '1'
+  _TIMEOUT: '60s'
+  _CONCURRENCY: '80'
+  _MAX_INSTANCES: '10'
+  _MIN_INSTANCES: '0'
 
+# Images to be stored in Artifact Registry
 images:
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:$COMMIT_SHA'
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cpls/cpls-be:latest'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_SERVICE_NAME}:latest'
 
+# Build options
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+  dynamicSubstitutions: true
 
+# Build timeout (20 minutes)
 timeout: 1200s
