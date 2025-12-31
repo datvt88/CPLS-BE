@@ -166,13 +166,44 @@ func initializeGlobalServices() {
 	log.Println("Global services initialized")
 }
 
+// templateFuncs returns custom template functions
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
+		"add": func(a, b int) int {
+			return a + b
+		},
+		"sub": func(a, b int) int {
+			return a - b
+		},
+		"subtract": func(a, b int) int {
+			return a - b
+		},
+		"mul": func(a, b int) int {
+			return a * b
+		},
+		"div": func(a, b int) int {
+			if b == 0 {
+				return 0
+			}
+			return a / b
+		},
+		"iterate": func(n int) []int {
+			result := make([]int, n)
+			for i := 0; i < n; i++ {
+				result[i] = i
+			}
+			return result
+		},
+	}
+}
+
 // loadTemplates loads HTML templates from embedded filesystem
 func loadTemplates(router *gin.Engine) error {
 	// Get embedded templates
 	tmplFS := templates.TemplateFS
 
-	// Parse templates from embedded filesystem
-	tmpl := template.New("")
+	// Parse templates from embedded filesystem with custom functions
+	tmpl := template.New("").Funcs(templateFuncs())
 
 	// Walk through embedded files and parse them
 	err := fs.WalkDir(tmplFS, ".", func(path string, d fs.DirEntry, err error) error {
@@ -345,6 +376,12 @@ func gracefulShutdown(server *http.Server, jobScheduler *scheduler.Scheduler) {
 func startLimitedServer(port string) {
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(corsMiddleware())
+
+	// Load HTML templates for limited mode too
+	if err := loadTemplates(router); err != nil {
+		log.Printf("Warning: Could not load templates in limited mode: %v", err)
+	}
 
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -365,6 +402,26 @@ func startLimitedServer(port string) {
 			"message": "Database not connected",
 		})
 	})
+
+	// Admin routes in limited mode - show error page
+	adminRoutes := router.Group("/admin")
+	{
+		adminRoutes.GET("/login", func(c *gin.Context) {
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+				"error":           "Database not connected. Please check server configuration.",
+				"supabaseEnabled": false,
+			})
+		})
+		adminRoutes.POST("/login", func(c *gin.Context) {
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+				"error":           "Database not connected. Cannot authenticate.",
+				"supabaseEnabled": false,
+			})
+		})
+		adminRoutes.GET("", func(c *gin.Context) {
+			c.Redirect(http.StatusFound, "/admin/login")
+		})
+	}
 
 	server := &http.Server{
 		Addr:         ":" + port,
