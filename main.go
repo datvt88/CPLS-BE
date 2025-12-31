@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"go_backend_project/admin"
 	"go_backend_project/admin/templates"
 	"go_backend_project/config"
 	"go_backend_project/models"
@@ -79,11 +78,8 @@ func main() {
 	// Setup health check and root endpoints
 	setupHealthEndpoints(router, db != nil)
 
-	// Setup all API routes
+	// Setup all API routes (includes admin routes with login)
 	routes.SetupRoutes(router, db)
-
-	// Setup initial admin routes (login page available without auth)
-	setupInitialAdminRoutes(router, db)
 
 	// Start background scheduler
 	jobScheduler := scheduler.NewScheduler(db)
@@ -263,24 +259,6 @@ func setupHealthEndpoints(router *gin.Engine, dbConnected bool) {
 			"status": "started",
 		})
 	})
-}
-
-// setupInitialAdminRoutes sets up admin login routes that are available before full route setup
-func setupInitialAdminRoutes(router *gin.Engine, db interface{}) {
-	if db == nil {
-		return
-	}
-
-	// Create auth controller for login
-	gormDB := config.DB
-	authController := admin.NewAuthController(gormDB)
-
-	// Admin login routes (public)
-	adminGroup := router.Group("/admin")
-	{
-		adminGroup.GET("/login", authController.LoginPage)
-		adminGroup.POST("/login", authController.Login)
-	}
 }
 
 // corsMiddleware returns a CORS middleware handler

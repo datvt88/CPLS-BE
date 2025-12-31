@@ -224,10 +224,13 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	}
 
 	// Admin UI routes
-	// Note: /admin/login routes are registered in main.go's setupInitialAdminRoutes
-	// to ensure they're available immediately when server starts
+	// Public routes (no auth required)
 	adminRoutes := router.Group("/admin")
 	{
+		// Login routes - must be registered BEFORE protected routes
+		adminRoutes.GET("/login", authController.LoginPage)
+		adminRoutes.POST("/login", authController.Login)
+
 		// Protected routes (auth required)
 		protected := adminRoutes.Group("")
 		protected.Use(authController.AuthMiddleware())
