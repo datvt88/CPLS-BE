@@ -9,11 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"go_backend_project/middleware"
 	"go_backend_project/models"
 	"go_backend_project/services"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+)
+
+// Local session configuration constants
+const (
+	LocalSessionDurationHours = 24
+	LocalSessionCookieMaxAge  = 24 * 60 * 60 // 24 hours in seconds
 )
 
 // AuthController handles admin authentication
@@ -39,23 +46,69 @@ func (ac *AuthController) LoginPage(c *gin.Context) {
 		return
 	}
 
+	// Generate CSRF token for the form
+	csrfToken := middleware.SetCSRFToken(c)
+
+	// Check rate limit status
+	ip := c.ClientIP()
+	_, remaining, _ := middleware.GetLoginRateLimiter().Check(ip)
+
 	c.HTML(http.StatusOK, "login.html", gin.H{
-		"error":            c.Query("error"),
-		"supabaseEnabled":  isSupabaseEnabled(),
+		"error":             c.Query("error"),
+		"supabaseEnabled":   isSupabaseEnabled(),
+		"csrf_token":        csrfToken,
+		"attemptsRemaining": remaining,
 	})
 }
 
 // Login handles the login form submission
 // Supports both local admin login (username/password) and Supabase Auth login (email/password)
 func (ac *AuthController) Login(c *gin.Context) {
+	ip := c.ClientIP()
+
+	// Validate CSRF token first
+	csrfToken := c.PostForm("csrf_token")
+	if csrfToken == "" {
+		csrfToken = c.GetHeader("X-CSRF-Token")
+	}
+	if !middleware.ValidateCSRFToken(csrfToken) {
+		log.Printf("SECURITY: CSRF validation failed from IP %s", ip)
+		newCSRFToken := middleware.SetCSRFToken(c)
+		c.HTML(http.StatusForbidden, "login.html", gin.H{
+			"error":           "Security token expired. Please try again.",
+			"supabaseEnabled": isSupabaseEnabled(),
+			"csrf_token":      newCSRFToken,
+		})
+		return
+	}
+
+	// Check rate limit
+	allowed, remaining, lockDuration := middleware.GetLoginRateLimiter().Check(ip)
+	if !allowed {
+		minutes := int(lockDuration.Minutes())
+		seconds := int(lockDuration.Seconds()) % 60
+		log.Printf("SECURITY: Rate limit exceeded from IP %s", ip)
+		newCSRFToken := middleware.SetCSRFToken(c)
+		c.HTML(http.StatusTooManyRequests, "login.html", gin.H{
+			"error":           formatRateLimitMessage(minutes, seconds),
+			"supabaseEnabled": isSupabaseEnabled(),
+			"csrf_token":      newCSRFToken,
+			"rateLimited":     true,
+		})
+		return
+	}
+
 	username := c.PostForm("username")
 	password := c.PostForm("password")
 	loginMethod := c.PostForm("login_method") // "local" or "supabase"
 
 	if username == "" || password == "" {
+		newCSRFToken := middleware.SetCSRFToken(c)
 		c.HTML(http.StatusBadRequest, "login.html", gin.H{
-			"error":            "Username/Email and password are required",
-			"supabaseEnabled":  isSupabaseEnabled(),
+			"error":             "Username/Email and password are required",
+			"supabaseEnabled":   isSupabaseEnabled(),
+			"csrf_token":        newCSRFToken,
+			"attemptsRemaining": remaining,
 		})
 		return
 	}
@@ -76,17 +129,34 @@ func (ac *AuthController) Login(c *gin.Context) {
 	ac.loginWithLocal(c, username, password)
 }
 
+// formatRateLimitMessage formats a user-friendly rate limit message
+func formatRateLimitMessage(minutes, _ int) string {
+	if minutes > 0 {
+		return "Too many failed login attempts. Please try again later."
+	}
+	return "Too many failed login attempts. Please try again shortly."
+}
+
 // loginWithLocal handles local admin authentication
 func (ac *AuthController) loginWithLocal(c *gin.Context, username, password string) {
+	ip := c.ClientIP()
+
 	// Find admin user
 	var admin models.AdminUser
 	if err := ac.db.Where("username = ? AND is_active = ?", username, true).First(&admin).Error; err != nil {
 		// Also try by email
 		if err := ac.db.Where("email = ? AND is_active = ?", username, true).First(&admin).Error; err != nil {
-			log.Printf("Admin login failed for user %s: user not found", username)
+			// Record failed attempt
+			middleware.RecordLoginAttempt(ip, false)
+			log.Printf("SECURITY: Admin login failed for user %s from IP %s: user not found", username, ip)
+
+			newCSRFToken := middleware.SetCSRFToken(c)
+			_, remaining, _ := middleware.GetLoginRateLimiter().Check(ip)
 			c.HTML(http.StatusUnauthorized, "login.html", gin.H{
-				"error":            "Invalid username or password",
-				"supabaseEnabled":  isSupabaseEnabled(),
+				"error":             "Invalid username or password",
+				"supabaseEnabled":   isSupabaseEnabled(),
+				"csrf_token":        newCSRFToken,
+				"attemptsRemaining": remaining,
 			})
 			return
 		}
@@ -94,13 +164,23 @@ func (ac *AuthController) loginWithLocal(c *gin.Context, username, password stri
 
 	// Check password
 	if !admin.CheckPassword(password) {
-		log.Printf("Admin login failed for user %s: invalid password", username)
+		// Record failed attempt
+		middleware.RecordLoginAttempt(ip, false)
+		log.Printf("SECURITY: Admin login failed for user %s from IP %s: invalid password", username, ip)
+
+		newCSRFToken := middleware.SetCSRFToken(c)
+		_, remaining, _ := middleware.GetLoginRateLimiter().Check(ip)
 		c.HTML(http.StatusUnauthorized, "login.html", gin.H{
-			"error":            "Invalid username or password",
-			"supabaseEnabled":  isSupabaseEnabled(),
+			"error":             "Invalid username or password",
+			"supabaseEnabled":   isSupabaseEnabled(),
+			"csrf_token":        newCSRFToken,
+			"attemptsRemaining": remaining,
 		})
 		return
 	}
+
+	// Successful login - clear rate limit
+	middleware.RecordLoginAttempt(ip, true)
 
 	// Create session
 	ac.createSessionAndRedirect(c, &admin)
@@ -108,6 +188,8 @@ func (ac *AuthController) loginWithLocal(c *gin.Context, username, password stri
 
 // loginWithSupabase handles Supabase Auth authentication
 func (ac *AuthController) loginWithSupabase(c *gin.Context, email, password string) bool {
+	ip := c.ClientIP()
+
 	supabaseAuth, err := services.NewSupabaseAuthService()
 	if err != nil {
 		log.Printf("Supabase auth service error: %v", err)
@@ -117,23 +199,35 @@ func (ac *AuthController) loginWithSupabase(c *gin.Context, email, password stri
 	// Authenticate with Supabase
 	authResp, err := supabaseAuth.SignInWithPassword(email, password)
 	if err != nil {
-		log.Printf("Supabase login failed for %s: %v", email, err)
+		// Record failed attempt
+		middleware.RecordLoginAttempt(ip, false)
+		log.Printf("SECURITY: Supabase login failed for %s from IP %s: %v", email, ip, err)
+
+		newCSRFToken := middleware.SetCSRFToken(c)
+		_, remaining, _ := middleware.GetLoginRateLimiter().Check(ip)
 		c.HTML(http.StatusUnauthorized, "login.html", gin.H{
-			"error":            "Invalid email or password",
-			"supabaseEnabled":  isSupabaseEnabled(),
+			"error":             "Invalid email or password",
+			"supabaseEnabled":   isSupabaseEnabled(),
+			"csrf_token":        newCSRFToken,
+			"attemptsRemaining": remaining,
 		})
 		return true // Handled, don't fallback
 	}
 
 	// Check if user has admin role
 	if !supabaseAuth.IsAdmin(&authResp.User) {
-		log.Printf("Supabase login failed for %s: not an admin", email)
+		log.Printf("SECURITY: Supabase login failed for %s from IP %s: not an admin", email, ip)
+		newCSRFToken := middleware.SetCSRFToken(c)
 		c.HTML(http.StatusForbidden, "login.html", gin.H{
-			"error":            "You don't have admin privileges. Contact your administrator.",
-			"supabaseEnabled":  isSupabaseEnabled(),
+			"error":           "You don't have admin privileges. Contact your administrator.",
+			"supabaseEnabled": isSupabaseEnabled(),
+			"csrf_token":      newCSRFToken,
 		})
 		return true
 	}
+
+	// Successful login - clear rate limit
+	middleware.RecordLoginAttempt(ip, true)
 
 	// Find or create admin user in local database
 	var admin models.AdminUser
@@ -154,8 +248,8 @@ func (ac *AuthController) loginWithSupabase(c *gin.Context, email, password stri
 		if err := ac.db.Create(&admin).Error; err != nil {
 			log.Printf("Failed to create admin user from Supabase: %v", err)
 			c.HTML(http.StatusInternalServerError, "login.html", gin.H{
-				"error":            "Failed to sync admin user",
-				"supabaseEnabled":  isSupabaseEnabled(),
+				"error":           "Failed to sync admin user",
+				"supabaseEnabled": isSupabaseEnabled(),
 			})
 			return true
 		}
@@ -173,8 +267,8 @@ func (ac *AuthController) createSessionAndRedirect(c *gin.Context, admin *models
 	token, err := generateSessionToken()
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "login.html", gin.H{
-			"error":            "Failed to create session",
-			"supabaseEnabled":  isSupabaseEnabled(),
+			"error":           "Failed to create session",
+			"supabaseEnabled": isSupabaseEnabled(),
 		})
 		return
 	}
@@ -189,8 +283,8 @@ func (ac *AuthController) createSessionAndRedirect(c *gin.Context, admin *models
 
 	if err := ac.db.Create(&session).Error; err != nil {
 		c.HTML(http.StatusInternalServerError, "login.html", gin.H{
-			"error":            "Failed to create session",
-			"supabaseEnabled":  isSupabaseEnabled(),
+			"error":           "Failed to create session",
+			"supabaseEnabled": isSupabaseEnabled(),
 		})
 		return
 	}

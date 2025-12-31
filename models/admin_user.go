@@ -10,16 +10,16 @@ import (
 
 // AdminUser represents an administrator account for the admin panel
 type AdminUser struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
-	Username     string    `gorm:"uniqueIndex;not null" json:"username"`
-	PasswordHash string    `gorm:"not null" json:"-"`
-	Email        string    `gorm:"uniqueIndex" json:"email"`
-	FullName     string    `json:"full_name"`
-	Role         string    `gorm:"default:'admin'" json:"role"` // admin, superadmin
-	IsActive     bool      `gorm:"default:true" json:"is_active"`
+	ID           uint       `gorm:"primaryKey" json:"id"`
+	Username     string     `gorm:"uniqueIndex;not null" json:"username"`
+	PasswordHash string     `gorm:"not null" json:"-"`
+	Email        string     `gorm:"uniqueIndex" json:"email"`
+	FullName     string     `json:"full_name"`
+	Role         string     `gorm:"default:'admin'" json:"role"` // admin, superadmin
+	IsActive     bool       `gorm:"default:true" json:"is_active"`
 	LastLoginAt  *time.Time `json:"last_login_at"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 // SetPassword hashes and sets the password for the admin user
@@ -64,6 +64,7 @@ func MigrateAdminModels(db *gorm.DB) error {
 }
 
 // SeedDefaultAdminUser creates the default admin user if it doesn't exist
+// SECURITY: Requires ADMIN_DEFAULT_USERNAME and ADMIN_DEFAULT_PASSWORD env variables
 func SeedDefaultAdminUser(db *gorm.DB) error {
 	var count int64
 	db.Model(&AdminUser{}).Count(&count)
@@ -72,20 +73,31 @@ func SeedDefaultAdminUser(db *gorm.DB) error {
 		return nil
 	}
 
-	// Get credentials from environment or use defaults
+	// Get credentials from environment - NO FALLBACK for security
 	username := os.Getenv("ADMIN_DEFAULT_USERNAME")
-	if username == "" {
-		username = "datvt8x"
-	}
 	password := os.Getenv("ADMIN_DEFAULT_PASSWORD")
-	if password == "" {
-		password = "@abcd4321"
+	email := os.Getenv("ADMIN_DEFAULT_EMAIL")
+
+	// Require environment variables to be set
+	if username == "" || password == "" {
+		// Log warning but don't fail - allows deployment without admin initially
+		return nil
+	}
+
+	// Use provided email or generate default
+	if email == "" {
+		email = username + "@admin.local"
+	}
+
+	// Validate password strength (minimum 8 characters)
+	if len(password) < 8 {
+		return nil
 	}
 
 	// Create default admin user
 	admin := &AdminUser{
 		Username: username,
-		Email:    "admin@cpls.com",
+		Email:    email,
 		FullName: "Administrator",
 		Role:     "superadmin",
 		IsActive: true,

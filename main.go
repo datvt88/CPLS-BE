@@ -13,6 +13,7 @@ import (
 
 	"go_backend_project/admin/templates"
 	"go_backend_project/config"
+	"go_backend_project/middleware"
 	"go_backend_project/models"
 	"go_backend_project/routes"
 	"go_backend_project/scheduler"
@@ -58,6 +59,9 @@ func main() {
 	if err := models.SeedDefaultAdminUser(config.DB); err != nil {
 		log.Printf("Warning: Could not seed admin user: %v", err)
 	}
+
+	// Initialize security middleware (rate limiter and CSRF protection)
+	initializeSecurityMiddleware()
 
 	// Initialize global services
 	initializeGlobalServices()
@@ -146,6 +150,17 @@ func runMigrations() error {
 	return nil
 }
 
+// initializeSecurityMiddleware initializes security-related middleware
+func initializeSecurityMiddleware() {
+	// Initialize login rate limiter
+	middleware.InitLoginRateLimiter()
+	log.Println("Login rate limiter initialized")
+
+	// Initialize CSRF store
+	middleware.InitCSRFStore()
+	log.Println("CSRF protection initialized")
+}
+
 // initializeGlobalServices initializes global service instances
 func initializeGlobalServices() {
 	// Initialize price service first (indicator service depends on it)
@@ -193,6 +208,18 @@ func templateFuncs() template.FuncMap {
 				result[i] = i
 			}
 			return result
+		},
+		"lt": func(a, b int) bool {
+			return a < b
+		},
+		"gt": func(a, b int) bool {
+			return a > b
+		},
+		"le": func(a, b int) bool {
+			return a <= b
+		},
+		"ge": func(a, b int) bool {
+			return a >= b
 		},
 	}
 }
