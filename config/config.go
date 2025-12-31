@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -39,6 +40,32 @@ func LoadConfig() (*Config, error) {
 		Environment: getEnv("ENVIRONMENT", "production"),
 	}
 
+	// Try to parse DATABASE_URL if DB_HOST is not set
+	if config.DBHost == "" {
+		if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+			log.Println("Parsing DATABASE_URL...")
+			if err := parseDBURL(dbURL, config); err != nil {
+				log.Printf("Warning: Failed to parse DATABASE_URL: %v", err)
+			}
+		}
+	}
+
+	// Try to derive DB connection from SUPABASE_URL if still not set
+	if config.DBHost == "" {
+		if supabaseURL := os.Getenv("SUPABASE_URL"); supabaseURL != "" {
+			log.Println("Deriving DB connection from SUPABASE_URL...")
+			deriveFromSupabaseURL(supabaseURL, config)
+		}
+	}
+
+	// Try SUPABASE_DB_PASSWORD as fallback for DB_PASSWORD
+	if config.DBPassword == "" {
+		if supabaseDBPass := os.Getenv("SUPABASE_DB_PASSWORD"); supabaseDBPass != "" {
+			config.DBPassword = supabaseDBPass
+			log.Println("Using SUPABASE_DB_PASSWORD")
+		}
+	}
+
 	log.Printf("Config: PORT=%s, DB_HOST=%s, DB_USER=%s, DB_NAME=%s, ENV=%s",
 		config.Port, maskStr(config.DBHost), config.DBUser, config.DBName, config.Environment)
 
@@ -52,6 +79,51 @@ func LoadConfig() (*Config, error) {
 
 	AppConfig = config
 	return config, nil
+}
+
+// parseDBURL parses a PostgreSQL DATABASE_URL and populates config
+func parseDBURL(dbURL string, config *Config) error {
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		return err
+	}
+
+	config.DBHost = u.Hostname()
+	if port := u.Port(); port != "" {
+		config.DBPort = port
+	}
+	if u.User != nil {
+		config.DBUser = u.User.Username()
+		if pass, ok := u.User.Password(); ok {
+			config.DBPassword = pass
+		}
+	}
+	if len(u.Path) > 1 {
+		config.DBName = u.Path[1:] // Remove leading /
+	}
+
+	log.Printf("Parsed DATABASE_URL: host=%s, port=%s, user=%s, db=%s",
+		maskStr(config.DBHost), config.DBPort, config.DBUser, config.DBName)
+	return nil
+}
+
+// deriveFromSupabaseURL extracts project ID from SUPABASE_URL and builds DB host
+func deriveFromSupabaseURL(supabaseURL string, config *Config) {
+	// SUPABASE_URL format: https://xxxxxxxxxxxxx.supabase.co
+	// DB host format: db.xxxxxxxxxxxxx.supabase.co (direct) or
+	//                 aws-0-ap-southeast-1.pooler.supabase.com (pooler)
+
+	// Extract project ID from URL
+	re := regexp.MustCompile(`https?://([a-z0-9]+)\.supabase\.co`)
+	matches := re.FindStringSubmatch(supabaseURL)
+	if len(matches) >= 2 {
+		projectID := matches[1]
+		// Use direct connection by default (more reliable for GORM)
+		config.DBHost = fmt.Sprintf("db.%s.supabase.co", projectID)
+		config.DBPort = "5432"
+		config.DBName = "postgres"
+		log.Printf("Derived DB host from SUPABASE_URL: %s", maskStr(config.DBHost))
+	}
 }
 
 func InitDB() (*gorm.DB, error) {
