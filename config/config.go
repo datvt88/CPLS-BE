@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,8 +30,17 @@ var AppConfig *Config
 var DB *gorm.DB
 
 func LoadConfig() (*Config, error) {
+	port := strings.TrimSpace(getEnv("PORT", "8080"))
+	if port == "" {
+		port = "8080"
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		log.Printf("Warning: Invalid PORT value '%s', falling back to 8080", port)
+		port = "8080"
+	}
+
 	config := &Config{
-		Port:        getEnv("PORT", "8080"),
+		Port:        port,
 		DBHost:      getEnv("DB_HOST", ""),
 		DBPort:      getEnv("DB_PORT", "5432"),
 		DBUser:      getEnv("DB_USER", "postgres"),
