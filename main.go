@@ -256,9 +256,13 @@ func loadTemplates(router *gin.Engine) error {
 		}
 
 		// For content templates that define "content" and "scripts",
-		// combine them with layout
+		// combine them with layout. We use string concatenation here because:
+		// 1. Templates are embedded and not available as separate files
+		// 2. Go's template.ParseFiles requires file paths, not embedded content
+		// 3. The layout template uses {{ template "content" . }} which expects
+		//    the "content" template to be defined in the same template tree
 		if strings.Contains(string(content), `{{ define "content" }}`) {
-			// Create a combined template: layout + page content
+			// Create a combined template: layout + page content definitions
 			combinedContent := string(layoutContent) + "\n" + string(content)
 			_, err = masterTmpl.New(path).Parse(combinedContent)
 			if err != nil {

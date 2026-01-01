@@ -247,6 +247,14 @@ func (ac *SupabaseAuthController) AuthMiddleware() gin.HandlerFunc {
 
 		session := cached.Session
 
+		// Validate UserID before conversion (should always be positive)
+		if session.UserID <= 0 {
+			log.Printf("Invalid session UserID: %d", session.UserID)
+			c.Redirect(http.StatusFound, "/admin/login")
+			c.Abort()
+			return
+		}
+
 		// Create an AdminUser struct for template compatibility
 		adminUser := models.AdminUser{
 			ID:       uint(session.UserID),
