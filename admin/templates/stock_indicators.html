@@ -263,7 +263,9 @@
         </div>
     </div>
 </div>
+{{ end }}
 
+{{ define "scripts" }}
 <script>
 // Search on Enter key
 document.getElementById('stockCode').addEventListener('keypress', function(e) {
@@ -469,5 +471,3 @@ function setBoolBadge(elementId, value, trueText, falseText) {
 }
 </script>
 {{ end }}
-
-{{ template "layout.html" . }}

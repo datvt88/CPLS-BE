@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"go_backend_project/models"
 	"go_backend_project/services"
 
 	"github.com/gin-gonic/gin"
@@ -246,7 +247,26 @@ func (ac *SupabaseAuthController) AuthMiddleware() gin.HandlerFunc {
 
 		session := cached.Session
 
-		// Set admin user info in context
+		// Validate UserID before conversion (should always be positive)
+		if session.UserID <= 0 {
+			log.Printf("Invalid session UserID: %d", session.UserID)
+			c.Redirect(http.StatusFound, "/admin/login")
+			c.Abort()
+			return
+		}
+
+		// Create an AdminUser struct for template compatibility
+		adminUser := models.AdminUser{
+			ID:       uint(session.UserID),
+			Username: session.Username,
+			Email:    session.Email,
+			FullName: session.FullName,
+			Role:     session.Role,
+			IsActive: true,
+		}
+
+		// Set admin user info in context (for template compatibility)
+		c.Set("admin_user", adminUser)
 		c.Set("admin_user_id", session.UserID)
 		c.Set("admin_username", session.Username)
 		c.Set("admin_email", session.Email)

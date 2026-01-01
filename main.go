@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -202,33 +204,80 @@ func loadTemplates(router *gin.Engine) error {
 	// Get embedded templates
 	tmplFS := templates.TemplateFS
 
-	// Parse templates from embedded filesystem with custom functions
-	tmpl := template.New("").Funcs(templateFuncs())
+	// Read layout template first
+	layoutContent, err := fs.ReadFile(tmplFS, "layout.html")
+	if err != nil {
+		return fmt.Errorf("failed to read layout.html: %w", err)
+	}
+
+	// Create master template with custom functions
+	masterTmpl := template.New("").Funcs(templateFuncs())
 
 	// Walk through embedded files and parse them
-	err := fs.WalkDir(tmplFS, ".", func(path string, d fs.DirEntry, err error) error {
+	var templateFiles []string
+	err = fs.WalkDir(tmplFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() || path == "embed.go" {
 			return nil
 		}
-
-		// Read and parse template
-		content, err := fs.ReadFile(tmplFS, path)
-		if err != nil {
-			return err
-		}
-
-		_, err = tmpl.New(path).Parse(string(content))
-		return err
+		templateFiles = append(templateFiles, path)
+		return nil
 	})
-
 	if err != nil {
 		return err
 	}
 
-	router.SetHTMLTemplate(tmpl)
+	// Parse each template file
+	for _, path := range templateFiles {
+		content, err := fs.ReadFile(tmplFS, path)
+		if err != nil {
+			return fmt.Errorf("failed to read template %s: %w", path, err)
+		}
+
+		// Skip layout.html as it's a base template
+		if path == "layout.html" {
+			// Parse layout directly for pages that might render it
+			_, err = masterTmpl.New(path).Parse(string(content))
+			if err != nil {
+				return fmt.Errorf("failed to parse layout template: %w", err)
+			}
+			continue
+		}
+
+		// For login.html, parse it standalone (it's a complete page)
+		if path == "login.html" {
+			_, err = masterTmpl.New(path).Parse(string(content))
+			if err != nil {
+				return fmt.Errorf("failed to parse %s: %w", path, err)
+			}
+			continue
+		}
+
+		// For content templates that define "content" and "scripts",
+		// combine them with layout. We use string concatenation here because:
+		// 1. Templates are embedded and not available as separate files
+		// 2. Go's template.ParseFiles requires file paths, not embedded content
+		// 3. The layout template uses {{ template "content" . }} which expects
+		//    the "content" template to be defined in the same template tree
+		if strings.Contains(string(content), `{{ define "content" }}`) {
+			// Create a combined template: layout + page content definitions
+			combinedContent := string(layoutContent) + "\n" + string(content)
+			_, err = masterTmpl.New(path).Parse(combinedContent)
+			if err != nil {
+				return fmt.Errorf("failed to parse combined template %s: %w", path, err)
+			}
+		} else {
+			// Parse as standalone template
+			_, err = masterTmpl.New(path).Parse(string(content))
+			if err != nil {
+				return fmt.Errorf("failed to parse %s: %w", path, err)
+			}
+		}
+	}
+
+	router.SetHTMLTemplate(masterTmpl)
 	log.Println("HTML templates loaded successfully")
 	return nil
 }

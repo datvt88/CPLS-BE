@@ -85,7 +85,7 @@ func (m *MongoDBClient) Connect() error {
 	mongoURI := os.Getenv("MONGODB_URI")
 	if mongoURI == "" {
 		m.lastError = "MONGODB_URI environment variable not set"
-		return fmt.Errorf(m.lastError)
+		return fmt.Errorf("%s", m.lastError)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
