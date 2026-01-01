@@ -34,7 +34,7 @@ func LoadConfig() (*Config, error) {
 	if port == "" {
 		port = "8080"
 	}
-	if _, err := strconv.Atoi(port); err != nil {
+	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
 		log.Printf("Warning: Invalid PORT value '%s', falling back to 8080", port)
 		port = "8080"
 	}
