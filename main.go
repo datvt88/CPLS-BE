@@ -25,6 +25,8 @@ import (
 )
 
 // dbInitialized tracks whether database has been successfully initialized
+// This global variable is used for thread-safe access across goroutines to allow
+// the /ready health endpoint to dynamically check database status
 var dbInitialized bool
 var dbInitMutex sync.RWMutex
 
@@ -82,18 +84,14 @@ func main() {
 		}
 	}()
 
-	// Channel to track if DB initialization is complete
-	dbReady := make(chan bool, 1)
-	var jobScheduler *scheduler.Scheduler
-
 	// Initialize database and setup routes in background
+	var jobScheduler *scheduler.Scheduler
 	go func() {
 		// Initialize database connection
 		db, err := config.InitDB()
 		if err != nil {
 			log.Printf("ERROR: Database connection failed: %v", err)
 			log.Println("Service will continue in limited mode (health check only)")
-			dbReady <- false
 			return
 		}
 
@@ -125,22 +123,7 @@ func main() {
 		jobScheduler = scheduler.NewScheduler(db)
 		go jobScheduler.Start()
 
-		log.Println("Database initialization and route setup completed")
-		dbReady <- true
-	}()
-
-	// Wait a moment to see if DB initializes quickly, but don't block indefinitely
-	go func() {
-		select {
-		case ready := <-dbReady:
-			if ready {
-				log.Println("Application fully initialized with database")
-			} else {
-				log.Println("Application running in limited mode")
-			}
-		case <-time.After(30 * time.Second):
-			log.Println("Database initialization taking longer than expected, continuing...")
-		}
+		log.Println("Application fully initialized with database")
 	}()
 
 	// Graceful shutdown
