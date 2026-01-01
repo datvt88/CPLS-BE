@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +23,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// dbInitialized tracks whether database has been successfully initialized
+// This global variable is used for thread-safe access across goroutines to allow
+// the /ready health endpoint to dynamically check database status
+var dbInitialized bool
+var dbInitMutex sync.RWMutex
 
 func main() {
 	log.Println("==============================================")
@@ -39,31 +46,6 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// Initialize database connection
-	db, err := config.InitDB()
-	if err != nil {
-		log.Printf("ERROR: Database connection failed: %v", err)
-		log.Println("Starting in limited mode (health check only)...")
-		startLimitedServer(cfg.Port)
-		return
-	}
-
-	// Run database migrations
-	log.Println("Running database migrations...")
-	if err := runMigrations(); err != nil {
-		log.Printf("ERROR: Migration failed: %v", err)
-	} else {
-		log.Println("Database migrations completed successfully")
-	}
-
-	// Seed default admin user
-	if err := models.SeedDefaultAdminUser(config.DB); err != nil {
-		log.Printf("Warning: Could not seed admin user: %v", err)
-	}
-
-	// Initialize global services
-	initializeGlobalServices()
-
 	// Create Gin router
 	router := gin.New()
 
@@ -77,19 +59,14 @@ func main() {
 		log.Printf("Warning: Could not load templates: %v", err)
 	}
 
-	// Setup health check and root endpoints
-	setupHealthEndpoints(router, db != nil)
-
-	// Setup all API routes (includes admin routes with login)
-	routes.SetupRoutes(router, db)
-
-	// Start background scheduler
-	jobScheduler := scheduler.NewScheduler(db)
-	go jobScheduler.Start()
+	// Setup health check endpoints FIRST so Cloud Run can detect the service is up
+	// Database will be initialized in background
+	setupHealthEndpoints(router)
 
 	// Create HTTP server with timeouts optimized for Cloud Run
+	// Bind to 0.0.0.0 explicitly for container networking
 	server := &http.Server{
-		Addr:              ":" + cfg.Port,
+		Addr:              "0.0.0.0:" + cfg.Port,
 		Handler:           router,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -98,13 +75,55 @@ func main() {
 		MaxHeaderBytes:    1 << 20, // 1 MB
 	}
 
-	// Start server in goroutine
+	// Start server IMMEDIATELY so Cloud Run knows we're listening
 	go func() {
-		log.Printf("Server listening on port %s", cfg.Port)
+		log.Printf("Server listening on 0.0.0.0:%s", cfg.Port)
 		log.Println("==============================================")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
+	}()
+
+	// Initialize database and setup routes in background
+	var jobScheduler *scheduler.Scheduler
+	go func() {
+		// Initialize database connection
+		db, err := config.InitDB()
+		if err != nil {
+			log.Printf("ERROR: Database connection failed: %v", err)
+			log.Println("Service will continue in limited mode (health check only)")
+			return
+		}
+
+		// Run database migrations
+		log.Println("Running database migrations...")
+		if err := runMigrations(); err != nil {
+			log.Printf("ERROR: Migration failed: %v", err)
+		} else {
+			log.Println("Database migrations completed successfully")
+		}
+
+		// Seed default admin user
+		if err := models.SeedDefaultAdminUser(config.DB); err != nil {
+			log.Printf("Warning: Could not seed admin user: %v", err)
+		}
+
+		// Initialize global services
+		initializeGlobalServices()
+
+		// Mark database as ready
+		dbInitMutex.Lock()
+		dbInitialized = true
+		dbInitMutex.Unlock()
+
+		// Setup all API routes (includes admin routes with login)
+		routes.SetupRoutes(router, db)
+
+		// Start background scheduler
+		jobScheduler = scheduler.NewScheduler(db)
+		go jobScheduler.Start()
+
+		log.Println("Application fully initialized with database")
 	}()
 
 	// Graceful shutdown
@@ -283,7 +302,7 @@ func loadTemplates(router *gin.Engine) error {
 }
 
 // setupHealthEndpoints sets up health check endpoints for Cloud Run
-func setupHealthEndpoints(router *gin.Engine, dbConnected bool) {
+func setupHealthEndpoints(router *gin.Engine) {
 	// Root endpoint
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -302,7 +321,11 @@ func setupHealthEndpoints(router *gin.Engine, dbConnected bool) {
 
 	// Readiness probe - checks if service is ready to receive traffic
 	router.GET("/ready", func(c *gin.Context) {
-		if !dbConnected {
+		dbInitMutex.RLock()
+		isDBReady := dbInitialized
+		dbInitMutex.RUnlock()
+
+		if !isDBReady {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"status":  "not_ready",
 				"message": "Database not connected",
