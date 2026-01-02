@@ -180,10 +180,15 @@ gcloud run services logs read cpls-backend --region=asia-southeast1 --limit=100
 
 ## Thông tin thêm
 
-- **Password mặc định** (nếu dùng seed script): `@abcd4321`
 - **Username mặc định**: `datvt8x`
+- **Password mặc định**: Được set qua environment variable hoặc trong migration script
 - **Session timeout**: 7 ngày
 - **Bcrypt cost**: 10 (default)
+
+⚠️ **CẢNH BÁO BẢO MẬT:**
+- Password mặc định PHẢI được thay đổi ngay sau lần đăng nhập đầu tiên
+- KHÔNG sử dụng password mặc định trong production
+- Generate bcrypt hash mới cho password mạnh của bạn trước khi deploy
 
 ## Bảo mật
 

@@ -62,19 +62,18 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 		} else {
 			log.Printf("Warning: Failed to create Supabase auth controller: %v", err)
 			log.Printf("Falling back to GORM-based authentication")
-			authController = admin.NewAuthController(db)
+			useSupabaseAuth = false
 		}
 	} else {
 		log.Printf("Supabase keys not found, using GORM-based authentication")
-		authController = admin.NewAuthController(db)
 	}
 	
-	// Fallback: if Supabase auth is not available, use GORM auth controller
+	// If not using Supabase auth, initialize GORM auth controller
 	if !useSupabaseAuth {
 		authController = admin.NewAuthController(db)
 	}
 
-	// Set the global auth controller so main.go's login handlers can use it
+	// Set the global auth controller for backward compatibility (only for GORM mode)
 	if AuthControllerSetter != nil && authController != nil {
 		AuthControllerSetter(authController)
 	}
