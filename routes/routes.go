@@ -158,9 +158,18 @@ func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trad
 	controllers := initializeAuthControllers(db)
 
 	// Only proceed if we have an auth controller
-	if !controllers.useSupabaseAuth && controllers.authController == nil {
-		log.Printf("Warning: Cannot setup admin protected routes - no auth controller available")
-		return
+	if controllers.useSupabaseAuth {
+		// Using Supabase auth - must have the controller
+		if controllers.supabaseAuthController == nil {
+			log.Printf("Warning: Cannot setup admin protected routes - Supabase auth is configured but controller is nil")
+			return
+		}
+	} else {
+		// Using GORM auth - must have the controller
+		if controllers.authController == nil {
+			log.Printf("Warning: Cannot setup admin protected routes - GORM auth controller is not available (DB not ready)")
+			return
+		}
 	}
 
 	// Set up protected routes under /admin path
