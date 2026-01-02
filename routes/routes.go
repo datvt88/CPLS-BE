@@ -137,7 +137,7 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 				// Supabase is configured but connection failed - likely missing admin_users table
 				errorMessage = "Database Error: Cannot access admin_users table on Supabase. " +
 					"Please run the migration script (migrations/001_admin_users.sql) in your Supabase SQL Editor. " +
-					"See DEPLOYMENT_FIX_ADMIN_LOGIN.md for instructions."
+					"See FIX_ADMIN_LOGIN_SERVICE_UNAVAILABLE.md for instructions."
 			} else {
 				// Neither Supabase nor GORM database is available
 				errorMessage = "Database not connected. Please wait for the system to initialize or contact your administrator."

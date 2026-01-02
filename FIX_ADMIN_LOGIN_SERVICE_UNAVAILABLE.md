@@ -98,12 +98,12 @@ If you see the "Service Unavailable" error when trying to login to admin panel, 
 
 After creating the table, you need to create at least one admin user:
 
-#### Option A: Use the seed script
+#### Option A: Use the seed script (Recommended)
 
 1. Open SQL Editor in Supabase
 2. Copy and paste the contents of `migrations/002_seed_admin_user.sql`
-3. **Important**: Edit the password hash in the script (see below)
-4. Click **Run**
+3. Click **Run** (the script will create a default admin user with username `datvt8x` and password `@abcd4321`)
+4. **Important**: Change the default password after first login for security
 
 #### Option B: Manually create admin user
 
