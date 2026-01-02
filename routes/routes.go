@@ -74,7 +74,7 @@ func initializeAuthControllers(db *gorm.DB) *authControllers {
 func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 	controllers := initializeAuthControllers(db)
 
-	// Admin UI routes
+	// Admin UI routes - only login/logout (public routes)
 	adminRoutes := router.Group("/admin")
 	{
 		// Root admin path and login routes
@@ -91,11 +91,17 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 			})
 			adminRoutes.GET("/login", controllers.supabaseAuthController.LoginPage)
 			adminRoutes.POST("/login", controllers.supabaseAuthController.Login)
+			
+			// Add logout as well since it needs the controller
+			adminRoutes.GET("/logout", controllers.supabaseAuthController.Logout)
 		} else if controllers.authController != nil {
 			// Use GORM-based authentication (only if DB is available)
 			adminRoutes.GET("", controllers.authController.RootRedirect)
 			adminRoutes.GET("/login", controllers.authController.LoginPage)
 			adminRoutes.POST("/login", controllers.authController.Login)
+			
+			// Add logout as well since it needs the controller
+			adminRoutes.GET("/logout", controllers.authController.Logout)
 		} else {
 			// Database not ready yet - show error page
 			adminRoutes.GET("", func(c *gin.Context) {
@@ -113,39 +119,32 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 					"supabaseEnabled": false,
 				})
 			})
-		}
-
-		// Protected routes (auth required)
-		// Only set up logout route now - other protected routes will be added by SetupAdminProtectedRoutes
-		if (controllers.useSupabaseAuth && controllers.supabaseAuthController != nil) || controllers.authController != nil {
-			protected := adminRoutes.Group("")
-			if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
-				protected.Use(controllers.supabaseAuthController.AuthMiddleware())
-			} else {
-				protected.Use(controllers.authController.AuthMiddleware())
-			}
-			{
-				// Add logout route
-				if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
-					protected.GET("/logout", controllers.supabaseAuthController.Logout)
-				} else if controllers.authController != nil {
-					protected.GET("/logout", controllers.authController.Logout)
-				}
-			}
+			adminRoutes.GET("/logout", func(c *gin.Context) {
+				c.Redirect(http.StatusFound, "/admin/login")
+			})
 		}
 	}
 }
 
 // SetupAdminProtectedRoutes sets up protected admin routes after database is initialized
 // This should be called AFTER SetupAdminRoutes and after database is ready
+// It only sets up the protected routes (dashboard, etc.), not the login routes
 func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trading.TradingBot) {
 	// Initialize admin controller with trading bot
 	adminController := admin.NewAdminController(db, tradingBot)
 	
-	// Get auth controllers (will be re-initialized with DB)
+	// Get auth controllers (will be re-initialized with DB if not using Supabase)
 	controllers := initializeAuthControllers(db)
-	
-	// Get the protected admin group
+
+	// Only proceed if we have an auth controller
+	if !controllers.useSupabaseAuth && controllers.authController == nil {
+		log.Printf("Warning: Cannot setup admin protected routes - no auth controller available")
+		return
+	}
+
+	// Set up protected routes under /admin
+	// Note: We're not creating a new group("/admin"), we're accessing the existing one
+	// by creating a protected sub-group with middleware
 	adminRoutes := router.Group("/admin")
 	protected := adminRoutes.Group("")
 	
