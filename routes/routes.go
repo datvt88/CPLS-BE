@@ -55,15 +55,19 @@ func initializeAuthControllers(db *gorm.DB) *authControllers {
 	if supabaseURL != "" && (supabaseAnonKey != "" || supabaseServiceKey != "") {
 		// Try to create Supabase auth controller
 		if sac, err := admin.NewSupabaseAuthController(); err == nil {
-			controllers.supabaseAuthController = sac
-			controllers.useSupabaseAuth = true
-			log.Printf("✓ Using Supabase REST API for admin authentication")
-			
-			// Test connection once during initialization
+			// Test connection to verify admin_users table exists and is accessible
 			if err := sac.TestConnection(); err != nil {
-				log.Printf("Warning: Supabase connection test failed: %v", err)
+				log.Printf("ERROR: Supabase connection test failed: %v", err)
+				log.Printf("ERROR: Cannot access admin_users table on Supabase")
+				log.Printf("ERROR: Please ensure the admin_users table exists by running migrations/001_admin_users.sql")
+				log.Printf("Falling back to GORM-based authentication")
+				// Don't use Supabase auth if connection test fails
 			} else {
-				log.Printf("✓ Supabase connection test successful")
+				// Connection test successful - use Supabase auth
+				controllers.supabaseAuthController = sac
+				controllers.useSupabaseAuth = true
+				log.Printf("✓ Using Supabase REST API for admin authentication")
+				log.Printf("✓ Supabase connection test successful - admin_users table is accessible")
 			}
 		} else {
 			log.Printf("Warning: Failed to create Supabase auth controller: %v", err)
@@ -124,19 +128,33 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 			// Add logout as well since it needs the controller
 			adminRoutes.GET("/logout", controllers.authController.Logout)
 		} else {
-			// Database not ready yet - show error page
+			// No auth controller available - check if Supabase is configured
+			supabaseURL := os.Getenv("SUPABASE_URL")
+			supabaseConfigured := supabaseURL != ""
+			
+			var errorMessage string
+			if supabaseConfigured {
+				// Supabase is configured but connection failed - likely missing admin_users table
+				errorMessage = "Database Error: Cannot access admin_users table on Supabase. " +
+					"Please run the migration script (migrations/001_admin_users.sql) in your Supabase SQL Editor. " +
+					"See DEPLOYMENT_FIX_ADMIN_LOGIN.md for instructions."
+			} else {
+				// Neither Supabase nor GORM database is available
+				errorMessage = "Database not connected. Please wait for the system to initialize or contact your administrator."
+			}
+			
 			adminRoutes.GET("", func(c *gin.Context) {
 				c.Redirect(http.StatusFound, "/admin/login")
 			})
 			adminRoutes.GET("/login", func(c *gin.Context) {
 				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-					"error":           "Database not connected. Please wait for the system to initialize or contact your administrator.",
+					"error":           errorMessage,
 					"supabaseEnabled": false,
 				})
 			})
 			adminRoutes.POST("/login", func(c *gin.Context) {
 				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-					"error":           "Database not connected. Cannot authenticate at this time.",
+					"error":           "Cannot authenticate at this time. " + errorMessage,
 					"supabaseEnabled": false,
 				})
 			})
