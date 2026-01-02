@@ -44,14 +44,14 @@ func initializeAuthControllers(db *gorm.DB) *authControllers {
 		}
 		return cachedAuthControllers
 	}
-	
+
 	controllers := &authControllers{}
-	
+
 	// Check if Supabase keys are configured
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	supabaseAnonKey := os.Getenv("SUPABASE_ANON_KEY")
 	supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
-	
+
 	if supabaseURL != "" && (supabaseAnonKey != "" || supabaseServiceKey != "") {
 		// Try to create Supabase auth controller
 		if sac, err := admin.NewSupabaseAuthController(); err == nil {
@@ -76,20 +76,20 @@ func initializeAuthControllers(db *gorm.DB) *authControllers {
 	} else {
 		log.Printf("Supabase keys not found, will use GORM-based authentication when DB is ready")
 	}
-	
+
 	// If not using Supabase auth and DB is available, initialize GORM auth controller
 	if !controllers.useSupabaseAuth && db != nil {
 		controllers.authController = admin.NewAuthController(db)
-		
+
 		// Set the global auth controller for backward compatibility
 		if AuthControllerSetter != nil {
 			AuthControllerSetter(controllers.authController)
 		}
 	}
-	
+
 	// Cache the controllers to avoid re-initialization
 	cachedAuthControllers = controllers
-	
+
 	return controllers
 }
 
@@ -116,7 +116,7 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 			})
 			adminRoutes.GET("/login", controllers.supabaseAuthController.LoginPage)
 			adminRoutes.POST("/login", controllers.supabaseAuthController.Login)
-			
+
 			// Add logout as well since it needs the controller
 			adminRoutes.GET("/logout", controllers.supabaseAuthController.Logout)
 		} else if controllers.authController != nil {
@@ -124,14 +124,14 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 			adminRoutes.GET("", controllers.authController.RootRedirect)
 			adminRoutes.GET("/login", controllers.authController.LoginPage)
 			adminRoutes.POST("/login", controllers.authController.Login)
-			
+
 			// Add logout as well since it needs the controller
 			adminRoutes.GET("/logout", controllers.authController.Logout)
 		} else {
 			// No auth controller available - check if Supabase is configured
 			supabaseURL := os.Getenv("SUPABASE_URL")
 			supabaseConfigured := supabaseURL != ""
-			
+
 			var errorMessage string
 			if supabaseConfigured {
 				// Supabase is configured but connection failed - likely missing admin_users table
@@ -142,7 +142,7 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 				// Neither Supabase nor GORM database is available
 				errorMessage = "Database not connected. Please wait for the system to initialize or contact your administrator."
 			}
-			
+
 			adminRoutes.GET("", func(c *gin.Context) {
 				c.Redirect(http.StatusFound, "/admin/login")
 			})
@@ -171,7 +171,7 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trading.TradingBot) {
 	// Initialize admin controller with trading bot
 	adminController := admin.NewAdminController(db, tradingBot)
-	
+
 	// Get auth controllers (will be re-initialized with DB if not using Supabase)
 	controllers := initializeAuthControllers(db)
 
@@ -195,14 +195,14 @@ func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trad
 	// route groups that can have different middlewares. Each group is independent.
 	adminRoutes := router.Group("/admin")
 	protected := adminRoutes.Group("")
-	
+
 	// Apply middleware
 	if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
 		protected.Use(controllers.supabaseAuthController.AuthMiddleware())
 	} else if controllers.authController != nil {
 		protected.Use(controllers.authController.AuthMiddleware())
 	}
-	
+
 	{
 		protected.GET("/dashboard", adminController.Dashboard)
 		protected.GET("/stocks", adminController.StocksPage)
