@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"log"
 	"net/http"
 	"os"
 
@@ -33,10 +34,47 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 
 	// Initialize admin controllers
 	adminController := admin.NewAdminController(db, tradingBot)
-	authController := admin.NewAuthController(db)
+	
+	// Try to use Supabase auth controller if keys are available
+	// This allows admin login to work even if GORM database fails
+	var authController *admin.AuthController
+	var supabaseAuthController *admin.SupabaseAuthController
+	var useSupabaseAuth bool
+	
+	// Check if Supabase keys are configured
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseAnonKey := os.Getenv("SUPABASE_ANON_KEY")
+	supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
+	
+	if supabaseURL != "" && (supabaseAnonKey != "" || supabaseServiceKey != "") {
+		// Try to create Supabase auth controller
+		if sac, err := admin.NewSupabaseAuthController(); err == nil {
+			supabaseAuthController = sac
+			useSupabaseAuth = true
+			log.Printf("✓ Using Supabase REST API for admin authentication")
+			
+			// Test connection
+			if err := sac.TestConnection(); err != nil {
+				log.Printf("Warning: Supabase connection test failed: %v", err)
+			} else {
+				log.Printf("✓ Supabase connection test successful")
+			}
+		} else {
+			log.Printf("Warning: Failed to create Supabase auth controller: %v", err)
+			log.Printf("Falling back to GORM-based authentication")
+			useSupabaseAuth = false
+		}
+	} else {
+		log.Printf("Supabase keys not found, using GORM-based authentication")
+	}
+	
+	// If not using Supabase auth, initialize GORM auth controller
+	if !useSupabaseAuth {
+		authController = admin.NewAuthController(db)
+	}
 
-	// Set the global auth controller so main.go's login handlers can use it
-	if AuthControllerSetter != nil {
+	// Set the global auth controller for backward compatibility (only for GORM mode)
+	if AuthControllerSetter != nil && authController != nil {
 		AuthControllerSetter(authController)
 	}
 
@@ -227,19 +265,42 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// Public routes (no auth required)
 	adminRoutes := router.Group("/admin")
 	{
-		// Root admin path - handled by auth controller
-		adminRoutes.GET("", authController.RootRedirect)
-
-		// Login routes - must be registered BEFORE protected routes
-		adminRoutes.GET("/login", authController.LoginPage)
-		adminRoutes.POST("/login", authController.Login)
+		// Root admin path and login routes
+		// Use appropriate auth controller based on availability
+		if useSupabaseAuth && supabaseAuthController != nil {
+			// Use Supabase REST API authentication
+			adminRoutes.GET("", func(c *gin.Context) {
+				// Check if already logged in by checking cookie
+				if token, err := c.Cookie("admin_session"); err == nil && token != "" {
+					c.Redirect(http.StatusFound, "/admin/dashboard")
+				} else {
+					c.Redirect(http.StatusFound, "/admin/login")
+				}
+			})
+			adminRoutes.GET("/login", supabaseAuthController.LoginPage)
+			adminRoutes.POST("/login", supabaseAuthController.Login)
+		} else {
+			// Use GORM-based authentication
+			adminRoutes.GET("", authController.RootRedirect)
+			adminRoutes.GET("/login", authController.LoginPage)
+			adminRoutes.POST("/login", authController.Login)
+		}
 
 		// Protected routes (auth required)
 		protected := adminRoutes.Group("")
-		protected.Use(authController.AuthMiddleware())
+		if useSupabaseAuth && supabaseAuthController != nil {
+			protected.Use(supabaseAuthController.AuthMiddleware())
+		} else {
+			protected.Use(authController.AuthMiddleware())
+		}
 		{
 			protected.GET("/dashboard", adminController.Dashboard)
-			protected.GET("/logout", authController.Logout)
+			// Logout route - use appropriate controller
+			if useSupabaseAuth && supabaseAuthController != nil {
+				protected.GET("/logout", supabaseAuthController.Logout)
+			} else {
+				protected.GET("/logout", authController.Logout)
+			}
 			protected.GET("/stocks", adminController.StocksPage)
 			protected.GET("/strategies", adminController.StrategiesPage)
 			protected.GET("/backtests", adminController.BacktestsPage)
