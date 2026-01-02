@@ -18,6 +18,9 @@ import (
 // AuthControllerSetter is called to set the global auth controller in main.go
 var AuthControllerSetter func(ac *admin.AuthController)
 
+// Global cached auth controllers to avoid re-initialization
+var cachedAuthControllers *authControllers
+
 // authControllers holds the initialized auth controllers
 type authControllers struct {
 	authController         *admin.AuthController
@@ -26,7 +29,22 @@ type authControllers struct {
 }
 
 // initializeAuthControllers initializes the appropriate auth controller based on configuration
+// This function caches the result to avoid redundant initializations and connection tests
 func initializeAuthControllers(db *gorm.DB) *authControllers {
+	// Return cached controllers if already initialized with same DB state
+	if cachedAuthControllers != nil {
+		// If we now have a DB but didn't before, need to reinitialize for GORM mode
+		if db != nil && !cachedAuthControllers.useSupabaseAuth && cachedAuthControllers.authController == nil {
+			// Upgrade to GORM auth now that DB is available
+			cachedAuthControllers.authController = admin.NewAuthController(db)
+			if AuthControllerSetter != nil {
+				AuthControllerSetter(cachedAuthControllers.authController)
+			}
+			log.Printf("Initialized GORM auth controller with database")
+		}
+		return cachedAuthControllers
+	}
+	
 	controllers := &authControllers{}
 	
 	// Check if Supabase keys are configured
@@ -41,7 +59,7 @@ func initializeAuthControllers(db *gorm.DB) *authControllers {
 			controllers.useSupabaseAuth = true
 			log.Printf("✓ Using Supabase REST API for admin authentication")
 			
-			// Test connection (only log once during initialization)
+			// Test connection once during initialization
 			if err := sac.TestConnection(); err != nil {
 				log.Printf("Warning: Supabase connection test failed: %v", err)
 			} else {
@@ -64,6 +82,9 @@ func initializeAuthControllers(db *gorm.DB) *authControllers {
 			AuthControllerSetter(controllers.authController)
 		}
 	}
+	
+	// Cache the controllers to avoid re-initialization
+	cachedAuthControllers = controllers
 	
 	return controllers
 }
@@ -142,9 +163,9 @@ func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trad
 		return
 	}
 
-	// Set up protected routes under /admin
-	// Note: We're not creating a new group("/admin"), we're accessing the existing one
-	// by creating a protected sub-group with middleware
+	// Set up protected routes under /admin path
+	// Note: Calling router.Group("/admin") multiple times is safe in Gin - it creates separate
+	// route groups that can have different middlewares. Each group is independent.
 	adminRoutes := router.Group("/admin")
 	protected := adminRoutes.Group("")
 	
