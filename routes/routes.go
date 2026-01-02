@@ -227,6 +227,9 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// Public routes (no auth required)
 	adminRoutes := router.Group("/admin")
 	{
+		// Root admin path - handled by auth controller
+		adminRoutes.GET("", authController.RootRedirect)
+
 		// Login routes - must be registered BEFORE protected routes
 		adminRoutes.GET("/login", authController.LoginPage)
 		adminRoutes.POST("/login", authController.Login)
@@ -235,7 +238,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 		protected := adminRoutes.Group("")
 		protected.Use(authController.AuthMiddleware())
 		{
-			protected.GET("", adminController.Dashboard)
+			protected.GET("/dashboard", adminController.Dashboard)
 			protected.GET("/logout", authController.Logout)
 			protected.GET("/stocks", adminController.StocksPage)
 			protected.GET("/strategies", adminController.StrategiesPage)

@@ -35,7 +35,7 @@ func isSecureMode() bool {
 func (ac *AuthController) LoginPage(c *gin.Context) {
 	// Check if already logged in
 	if _, err := ac.getSessionFromCookie(c); err == nil {
-		c.Redirect(http.StatusFound, "/admin")
+		c.Redirect(http.StatusFound, "/admin/dashboard")
 		return
 	}
 
@@ -43,6 +43,25 @@ func (ac *AuthController) LoginPage(c *gin.Context) {
 		"error":            c.Query("error"),
 		"supabaseEnabled":  isSupabaseEnabled(),
 	})
+}
+
+// RootRedirect handles the root /admin path and redirects appropriately
+// Redirects to login if no session cookie, or to dashboard if cookie exists.
+// Note: This only checks cookie existence for a quick decision. If the cookie contains
+// an invalid/expired token, the user will be redirected to /admin/dashboard first,
+// then the AuthMiddleware will redirect them back to /admin/login. This extra redirect
+// is acceptable and only happens once per invalid session.
+// Full session validation happens in AuthMiddleware on protected routes.
+func (ac *AuthController) RootRedirect(c *gin.Context) {
+	// Quick check for session cookie existence
+	// Full session validation happens in AuthMiddleware on protected routes
+	if token, err := c.Cookie("admin_session"); err == nil && token != "" {
+		// Has cookie, redirect to dashboard (AuthMiddleware will validate)
+		c.Redirect(http.StatusFound, "/admin/dashboard")
+	} else {
+		// No cookie, redirect to login
+		c.Redirect(http.StatusFound, "/admin/login")
+	}
 }
 
 // Login handles the login form submission
@@ -203,7 +222,7 @@ func (ac *AuthController) createSessionAndRedirect(c *gin.Context, admin *models
 	c.SetCookie("admin_session", token, 86400, "/admin", "", isSecureMode(), true)
 
 	log.Printf("Admin user %s logged in successfully", admin.Username)
-	c.Redirect(http.StatusFound, "/admin")
+	c.Redirect(http.StatusFound, "/admin/dashboard")
 }
 
 // isSupabaseEnabled checks if Supabase Auth is configured
