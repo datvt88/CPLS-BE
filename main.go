@@ -63,6 +63,10 @@ func main() {
 	// Database will be initialized in background
 	setupHealthEndpoints(router)
 
+	// Setup admin routes early (before database init) so login is always accessible
+	// Admin routes will use Supabase auth if configured, or show error page if DB not ready
+	routes.SetupAdminRoutes(router, nil)
+
 	// Create HTTP server with timeouts optimized for Cloud Run
 	// Bind to 0.0.0.0 explicitly for container networking
 	server := &http.Server{

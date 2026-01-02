@@ -18,23 +18,10 @@ import (
 // AuthControllerSetter is called to set the global auth controller in main.go
 var AuthControllerSetter func(ac *admin.AuthController)
 
-// SetupRoutes sets up all API routes
-func SetupRoutes(router *gin.Engine, db *gorm.DB) {
-	// Initialize shared trading bot
-	tradingBot := trading.NewTradingBot(db)
-
-	// Note: HTML templates are loaded in main.go before this function is called
-
-	// Initialize controllers
-	stockController := controllers.NewStockController(db)
-	tradingController := controllers.NewTradingController(db)
-	userController := controllers.NewUserController(db)
-	subscriptionController := controllers.NewSubscriptionController(db)
-	screenerController := controllers.NewScreenerController(db)
-
-	// Initialize admin controllers
-	adminController := admin.NewAdminController(db, tradingBot)
-	
+// SetupAdminRoutes sets up admin authentication routes
+// This should be called early, before database initialization, to ensure
+// admin login is accessible even if database connection fails
+func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 	// Try to use Supabase auth controller if keys are available
 	// This allows admin login to work even if GORM database fails
 	var authController *admin.AuthController
@@ -65,11 +52,11 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 			useSupabaseAuth = false
 		}
 	} else {
-		log.Printf("Supabase keys not found, using GORM-based authentication")
+		log.Printf("Supabase keys not found, will use GORM-based authentication when DB is ready")
 	}
 	
-	// If not using Supabase auth, initialize GORM auth controller
-	if !useSupabaseAuth {
+	// If not using Supabase auth and DB is available, initialize GORM auth controller
+	if !useSupabaseAuth && db != nil {
 		authController = admin.NewAuthController(db)
 	}
 
@@ -77,6 +64,191 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	if AuthControllerSetter != nil && authController != nil {
 		AuthControllerSetter(authController)
 	}
+
+	// Admin UI routes
+	adminRoutes := router.Group("/admin")
+	{
+		// Root admin path and login routes
+		// Use appropriate auth controller based on availability
+		if useSupabaseAuth && supabaseAuthController != nil {
+			// Use Supabase REST API authentication
+			adminRoutes.GET("", func(c *gin.Context) {
+				// Check if already logged in by checking cookie
+				if token, err := c.Cookie("admin_session"); err == nil && token != "" {
+					c.Redirect(http.StatusFound, "/admin/dashboard")
+				} else {
+					c.Redirect(http.StatusFound, "/admin/login")
+				}
+			})
+			adminRoutes.GET("/login", supabaseAuthController.LoginPage)
+			adminRoutes.POST("/login", supabaseAuthController.Login)
+		} else if authController != nil {
+			// Use GORM-based authentication (only if DB is available)
+			adminRoutes.GET("", authController.RootRedirect)
+			adminRoutes.GET("/login", authController.LoginPage)
+			adminRoutes.POST("/login", authController.Login)
+		} else {
+			// Database not ready yet - show error page
+			adminRoutes.GET("", func(c *gin.Context) {
+				c.Redirect(http.StatusFound, "/admin/login")
+			})
+			adminRoutes.GET("/login", func(c *gin.Context) {
+				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+					"error":           "Database not connected. Please wait for the system to initialize or contact your administrator.",
+					"supabaseEnabled": false,
+				})
+			})
+			adminRoutes.POST("/login", func(c *gin.Context) {
+				c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+					"error":           "Database not connected. Cannot authenticate at this time.",
+					"supabaseEnabled": false,
+				})
+			})
+		}
+
+		// Protected routes (auth required)
+		// Only set up if we have an auth controller
+		if (useSupabaseAuth && supabaseAuthController != nil) || authController != nil {
+			protected := adminRoutes.Group("")
+			if useSupabaseAuth && supabaseAuthController != nil {
+				protected.Use(supabaseAuthController.AuthMiddleware())
+			} else {
+				protected.Use(authController.AuthMiddleware())
+			}
+			{
+				// Will be populated by SetupAdminProtectedRoutes after DB init
+				// For now, just add logout
+				if useSupabaseAuth && supabaseAuthController != nil {
+					protected.GET("/logout", supabaseAuthController.Logout)
+				} else if authController != nil {
+					protected.GET("/logout", authController.Logout)
+				}
+				
+				// Placeholder for dashboard - will redirect to login if DB not ready
+				protected.GET("/dashboard", func(c *gin.Context) {
+					if db == nil {
+						c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+							"error": "System is initializing. Please try again in a moment.",
+						})
+						return
+					}
+					c.HTML(http.StatusOK, "dashboard.html", gin.H{
+						"admin_user": c.MustGet("admin_user"),
+					})
+				})
+			}
+		}
+	}
+}
+
+// SetupAdminProtectedRoutes sets up protected admin routes after database is initialized
+func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trading.TradingBot) {
+	// Initialize admin controller with trading bot
+	adminController := admin.NewAdminController(db, tradingBot)
+	
+	// Check which auth mode we're using
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseAnonKey := os.Getenv("SUPABASE_ANON_KEY")
+	supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
+	useSupabaseAuth := supabaseURL != "" && (supabaseAnonKey != "" || supabaseServiceKey != "")
+	
+	var authController *admin.AuthController
+	var supabaseAuthController *admin.SupabaseAuthController
+	
+	if useSupabaseAuth {
+		if sac, err := admin.NewSupabaseAuthController(); err == nil {
+			supabaseAuthController = sac
+		}
+	} else {
+		authController = admin.NewAuthController(db)
+	}
+	
+	// Get the protected admin group
+	adminRoutes := router.Group("/admin")
+	protected := adminRoutes.Group("")
+	
+	// Apply middleware
+	if useSupabaseAuth && supabaseAuthController != nil {
+		protected.Use(supabaseAuthController.AuthMiddleware())
+	} else if authController != nil {
+		protected.Use(authController.AuthMiddleware())
+	}
+	
+	{
+		protected.GET("/dashboard", adminController.Dashboard)
+		protected.GET("/stocks", adminController.StocksPage)
+		protected.GET("/strategies", adminController.StrategiesPage)
+		protected.GET("/backtests", adminController.BacktestsPage)
+		protected.GET("/trading-bot", adminController.TradingBotPage)
+		protected.GET("/signals", adminController.SignalsPage)
+		protected.GET("/users", adminController.UsersPage)
+		protected.GET("/admin-users", adminController.AdminUsersPage)
+		protected.GET("/api-overview", adminController.APIOverviewPage)
+		protected.GET("/signal-conditions", adminController.SignalConditionsPage)
+		protected.GET("/stock-indicators", adminController.StockIndicatorsPage)
+		protected.GET("/stock-indicators/search", adminController.SearchStockIndicators)
+
+		// Signal Conditions Management
+		signalConds := protected.Group("/signal-conditions")
+		{
+			// Condition Groups
+			signalConds.POST("/groups", adminController.CreateConditionGroupAction)
+			signalConds.PUT("/groups/:id", adminController.UpdateConditionGroupAction)
+			signalConds.DELETE("/groups/:id", adminController.DeleteConditionGroupAction)
+
+			// Individual Conditions
+			signalConds.POST("/conditions", adminController.AddConditionAction)
+			signalConds.PUT("/conditions/:id", adminController.UpdateConditionAction)
+			signalConds.DELETE("/conditions/:id", adminController.DeleteConditionAction)
+
+			// Signal Rules
+			signalConds.POST("/rules", adminController.CreateSignalRuleAction)
+			signalConds.PUT("/rules/:id", adminController.UpdateSignalRuleAction)
+			signalConds.DELETE("/rules/:id", adminController.DeleteSignalRuleAction)
+			signalConds.GET("/rules/:id/test", adminController.TestSignalRuleAction)
+			signalConds.GET("/rules/:id/stats", adminController.GetRuleStatisticsAction)
+
+			// Templates
+			signalConds.GET("/templates", adminController.GetTemplatesAction)
+			signalConds.GET("/templates/:id/test", adminController.TestTemplateAction)
+			signalConds.POST("/templates/from-group", adminController.CreateTemplateFromGroupAction)
+
+			// Testing
+			signalConds.GET("/test", adminController.TestStockWithConditionsAction)
+		}
+
+		// Admin actions
+		actions := protected.Group("/actions")
+		{
+			actions.POST("/fetch-data", adminController.FetchHistoricalDataAction)
+			actions.POST("/create-strategy", adminController.CreateStrategyAction)
+			actions.POST("/run-backtest", adminController.RunBacktestAction)
+			actions.POST("/start-bot", adminController.StartBotAction)
+			actions.POST("/stop-bot", adminController.StopBotAction)
+			actions.POST("/initialize-data", adminController.InitializeStockData)
+			actions.POST("/create-admin-user", adminController.CreateAdminUserAction)
+			actions.POST("/update-user-status", adminController.UpdateUserStatusAction)
+			actions.POST("/update-user-role", adminController.UpdateUserRoleAction)
+		}
+	}
+}
+
+// SetupRoutes sets up all API routes
+func SetupRoutes(router *gin.Engine, db *gorm.DB) {
+	// Initialize shared trading bot
+	tradingBot := trading.NewTradingBot(db)
+
+	// Note: HTML templates are loaded in main.go before this function is called
+
+	// Initialize controllers
+	stockController := controllers.NewStockController(db)
+	tradingController := controllers.NewTradingController(db)
+	userController := controllers.NewUserController(db)
+	subscriptionController := controllers.NewSubscriptionController(db)
+	screenerController := controllers.NewScreenerController(db)
+
+	// Setup protected admin routes now that DB is ready
+	SetupAdminProtectedRoutes(router, db, tradingBot)
 
 	// Check if API auth is required (can be configured via environment)
 	requireAPIAuth := os.Getenv("REQUIRE_API_AUTH") == "true"
@@ -260,102 +432,4 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 			trading.GET("/portfolio", tradingController.GetPortfolio)
 		}
 	}
-
-	// Admin UI routes
-	// Public routes (no auth required)
-	adminRoutes := router.Group("/admin")
-	{
-		// Root admin path and login routes
-		// Use appropriate auth controller based on availability
-		if useSupabaseAuth && supabaseAuthController != nil {
-			// Use Supabase REST API authentication
-			adminRoutes.GET("", func(c *gin.Context) {
-				// Check if already logged in by checking cookie
-				if token, err := c.Cookie("admin_session"); err == nil && token != "" {
-					c.Redirect(http.StatusFound, "/admin/dashboard")
-				} else {
-					c.Redirect(http.StatusFound, "/admin/login")
-				}
-			})
-			adminRoutes.GET("/login", supabaseAuthController.LoginPage)
-			adminRoutes.POST("/login", supabaseAuthController.Login)
-		} else {
-			// Use GORM-based authentication
-			adminRoutes.GET("", authController.RootRedirect)
-			adminRoutes.GET("/login", authController.LoginPage)
-			adminRoutes.POST("/login", authController.Login)
-		}
-
-		// Protected routes (auth required)
-		protected := adminRoutes.Group("")
-		if useSupabaseAuth && supabaseAuthController != nil {
-			protected.Use(supabaseAuthController.AuthMiddleware())
-		} else {
-			protected.Use(authController.AuthMiddleware())
-		}
-		{
-			protected.GET("/dashboard", adminController.Dashboard)
-			// Logout route - use appropriate controller
-			if useSupabaseAuth && supabaseAuthController != nil {
-				protected.GET("/logout", supabaseAuthController.Logout)
-			} else {
-				protected.GET("/logout", authController.Logout)
-			}
-			protected.GET("/stocks", adminController.StocksPage)
-			protected.GET("/strategies", adminController.StrategiesPage)
-			protected.GET("/backtests", adminController.BacktestsPage)
-			protected.GET("/trading-bot", adminController.TradingBotPage)
-			protected.GET("/signals", adminController.SignalsPage)
-			protected.GET("/users", adminController.UsersPage)
-			protected.GET("/admin-users", adminController.AdminUsersPage)
-			protected.GET("/api-overview", adminController.APIOverviewPage)
-			protected.GET("/signal-conditions", adminController.SignalConditionsPage)
-			protected.GET("/stock-indicators", adminController.StockIndicatorsPage)
-			protected.GET("/stock-indicators/search", adminController.SearchStockIndicators)
-
-			// Signal Conditions Management
-			signalConds := protected.Group("/signal-conditions")
-			{
-				// Condition Groups
-				signalConds.POST("/groups", adminController.CreateConditionGroupAction)
-				signalConds.PUT("/groups/:id", adminController.UpdateConditionGroupAction)
-				signalConds.DELETE("/groups/:id", adminController.DeleteConditionGroupAction)
-
-				// Individual Conditions
-				signalConds.POST("/conditions", adminController.AddConditionAction)
-				signalConds.PUT("/conditions/:id", adminController.UpdateConditionAction)
-				signalConds.DELETE("/conditions/:id", adminController.DeleteConditionAction)
-
-				// Signal Rules
-				signalConds.POST("/rules", adminController.CreateSignalRuleAction)
-				signalConds.PUT("/rules/:id", adminController.UpdateSignalRuleAction)
-				signalConds.DELETE("/rules/:id", adminController.DeleteSignalRuleAction)
-				signalConds.GET("/rules/:id/test", adminController.TestSignalRuleAction)
-				signalConds.GET("/rules/:id/stats", adminController.GetRuleStatisticsAction)
-
-				// Templates
-				signalConds.GET("/templates", adminController.GetTemplatesAction)
-				signalConds.GET("/templates/:id/test", adminController.TestTemplateAction)
-				signalConds.POST("/templates/from-group", adminController.CreateTemplateFromGroupAction)
-
-				// Testing
-				signalConds.GET("/test", adminController.TestStockWithConditionsAction)
-			}
-
-			// Admin actions
-			actions := protected.Group("/actions")
-			{
-				actions.POST("/fetch-data", adminController.FetchHistoricalDataAction)
-				actions.POST("/create-strategy", adminController.CreateStrategyAction)
-				actions.POST("/run-backtest", adminController.RunBacktestAction)
-				actions.POST("/start-bot", adminController.StartBotAction)
-				actions.POST("/stop-bot", adminController.StopBotAction)
-				actions.POST("/initialize-data", adminController.InitializeStockData)
-				actions.POST("/create-admin-user", adminController.CreateAdminUserAction)
-				actions.POST("/update-user-status", adminController.UpdateUserStatusAction)
-				actions.POST("/update-user-role", adminController.UpdateUserRoleAction)
-			}
-		}
-	}
-
 }
