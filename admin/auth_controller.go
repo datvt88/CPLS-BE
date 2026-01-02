@@ -35,7 +35,7 @@ func isSecureMode() bool {
 func (ac *AuthController) LoginPage(c *gin.Context) {
 	// Check if already logged in
 	if _, err := ac.getSessionFromCookie(c); err == nil {
-		c.Redirect(http.StatusFound, "/admin")
+		c.Redirect(http.StatusFound, "/admin/dashboard")
 		return
 	}
 
@@ -203,7 +203,7 @@ func (ac *AuthController) createSessionAndRedirect(c *gin.Context, admin *models
 	c.SetCookie("admin_session", token, 86400, "/admin", "", isSecureMode(), true)
 
 	log.Printf("Admin user %s logged in successfully", admin.Username)
-	c.Redirect(http.StatusFound, "/admin")
+	c.Redirect(http.StatusFound, "/admin/dashboard")
 }
 
 // isSupabaseEnabled checks if Supabase Auth is configured

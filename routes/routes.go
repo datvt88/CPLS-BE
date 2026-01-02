@@ -227,6 +227,18 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// Public routes (no auth required)
 	adminRoutes := router.Group("/admin")
 	{
+		// Root admin path - redirect to login if not authenticated, otherwise to dashboard
+		adminRoutes.GET("", func(c *gin.Context) {
+			// Check if user is authenticated by trying to get session
+			if token, err := c.Cookie("admin_session"); err == nil && token != "" {
+				// Has cookie, redirect to dashboard (let AuthMiddleware verify)
+				c.Redirect(http.StatusFound, "/admin/dashboard")
+			} else {
+				// No cookie, redirect to login
+				c.Redirect(http.StatusFound, "/admin/login")
+			}
+		})
+
 		// Login routes - must be registered BEFORE protected routes
 		adminRoutes.GET("/login", authController.LoginPage)
 		adminRoutes.POST("/login", authController.Login)
@@ -235,7 +247,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 		protected := adminRoutes.Group("")
 		protected.Use(authController.AuthMiddleware())
 		{
-			protected.GET("", adminController.Dashboard)
+			protected.GET("/dashboard", adminController.Dashboard)
 			protected.GET("/logout", authController.Logout)
 			protected.GET("/stocks", adminController.StocksPage)
 			protected.GET("/strategies", adminController.StrategiesPage)
