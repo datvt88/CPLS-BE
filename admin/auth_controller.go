@@ -45,6 +45,21 @@ func (ac *AuthController) LoginPage(c *gin.Context) {
 	})
 }
 
+// RootRedirect handles the root /admin path and redirects appropriately
+// Redirects to login if no session cookie, or to dashboard if cookie exists
+// The AuthMiddleware on the dashboard route will validate the actual session
+func (ac *AuthController) RootRedirect(c *gin.Context) {
+	// Quick check for session cookie existence
+	// Full session validation happens in AuthMiddleware on protected routes
+	if token, err := c.Cookie("admin_session"); err == nil && token != "" {
+		// Has cookie, redirect to dashboard (AuthMiddleware will validate)
+		c.Redirect(http.StatusFound, "/admin/dashboard")
+	} else {
+		// No cookie, redirect to login
+		c.Redirect(http.StatusFound, "/admin/login")
+	}
+}
+
 // Login handles the login form submission
 // Supports both local admin login (username/password) and Supabase Auth login (email/password)
 func (ac *AuthController) Login(c *gin.Context) {
