@@ -46,8 +46,12 @@ func (ac *AuthController) LoginPage(c *gin.Context) {
 }
 
 // RootRedirect handles the root /admin path and redirects appropriately
-// Redirects to login if no session cookie, or to dashboard if cookie exists
-// The AuthMiddleware on the dashboard route will validate the actual session
+// Redirects to login if no session cookie, or to dashboard if cookie exists.
+// Note: This only checks cookie existence for a quick decision. If the cookie contains
+// an invalid/expired token, the user will be redirected to /admin/dashboard first,
+// then the AuthMiddleware will redirect them back to /admin/login. This extra redirect
+// is acceptable and only happens once per invalid session.
+// Full session validation happens in AuthMiddleware on protected routes.
 func (ac *AuthController) RootRedirect(c *gin.Context) {
 	// Quick check for session cookie existence
 	// Full session validation happens in AuthMiddleware on protected routes
