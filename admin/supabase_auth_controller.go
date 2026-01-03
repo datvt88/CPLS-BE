@@ -340,11 +340,13 @@ func (ac *SupabaseAuthController) TestConnection() error {
 func (ac *SupabaseAuthController) ConnectionStatusHandler(c *gin.Context) {
 	err := ac.supabaseClient.TestConnection()
 	if err != nil {
+		// Log detailed error server-side for debugging
+		log.Printf("Supabase connection test failed: %v", err)
+		
 		c.JSON(http.StatusOK, gin.H{
 			"connected": false,
 			"status":    "disconnected",
 			"message":   "Cannot connect to Supabase database",
-			"error":     err.Error(),
 		})
 		return
 	}
