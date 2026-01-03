@@ -189,8 +189,8 @@
         // Check status immediately on page load
         checkConnectionStatus();
 
-        // Check status every 30 seconds
-        setInterval(checkConnectionStatus, 30000);
+        // Check status every 60 seconds to reduce server load
+        setInterval(checkConnectionStatus, 60000);
     </script>
 </body>
 </html>
