@@ -67,6 +67,11 @@ func main() {
 	// Admin routes will use Supabase auth if configured, or show error page if DB not ready
 	routes.SetupAdminRoutes(router, nil)
 
+	// Setup protected admin routes early if Supabase auth is available
+	// If Supabase is configured, dashboard will be accessible immediately after login
+	// If not, protected routes will be set up after database initialization
+	routes.SetupAdminProtectedRoutesEarly(router)
+
 	// Create HTTP server with timeouts optimized for Cloud Run
 	// Bind to 0.0.0.0 explicitly for container networking
 	server := &http.Server{
