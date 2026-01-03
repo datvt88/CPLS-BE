@@ -28,10 +28,19 @@ type AdminController struct {
 
 // NewAdminController creates a new admin controller
 func NewAdminController(db *gorm.DB, tradingBot *trading.TradingBot) *AdminController {
+	var dataFetcher *datafetcher.DataFetcher
+	var backtestEngine *backtesting.BacktestEngine
+	
+	// Only initialize services that require database if db is available
+	if db != nil {
+		dataFetcher = datafetcher.NewDataFetcher(db)
+		backtestEngine = backtesting.NewBacktestEngine(db)
+	}
+	
 	return &AdminController{
 		db:             db,
-		dataFetcher:    datafetcher.NewDataFetcher(db),
-		backtestEngine: backtesting.NewBacktestEngine(db),
+		dataFetcher:    dataFetcher,
+		backtestEngine: backtestEngine,
 		tradingBot:     tradingBot,
 	}
 }
@@ -236,6 +245,10 @@ func (ac *AdminController) FetchHistoricalDataAction(c *gin.Context) {
 	if !ac.checkDatabaseAvailable(c) {
 		return
 	}
+	if ac.dataFetcher == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Data fetcher not initialized"})
+		return
+	}
 
 	symbol := c.PostForm("symbol")
 	startDate, _ := time.Parse("2006-01-02", c.PostForm("start_date"))
@@ -273,6 +286,10 @@ func (ac *AdminController) CreateStrategyAction(c *gin.Context) {
 // RunBacktestAction runs a backtest
 func (ac *AdminController) RunBacktestAction(c *gin.Context) {
 	if !ac.checkDatabaseAvailable(c) {
+		return
+	}
+	if ac.backtestEngine == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Backtest engine not initialized"})
 		return
 	}
 
@@ -336,6 +353,10 @@ func (ac *AdminController) StopBotAction(c *gin.Context) {
 // InitializeStockData initializes sample stock data
 func (ac *AdminController) InitializeStockData(c *gin.Context) {
 	if !ac.checkDatabaseAvailable(c) {
+		return
+	}
+	if ac.dataFetcher == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Data fetcher not initialized"})
 		return
 	}
 

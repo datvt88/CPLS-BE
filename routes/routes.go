@@ -174,15 +174,26 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 // This is called before database initialization. If Supabase is configured and working,
 // protected routes will be available immediately. Otherwise, they'll be set up after DB init.
 func SetupAdminProtectedRoutesEarly(router *gin.Engine) {
+	// Check if Supabase is configured
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
+	
+	// Only attempt early setup if Supabase is configured
+	if supabaseURL == "" || supabaseServiceKey == "" {
+		log.Printf("Deferring admin protected routes setup until database is ready (Supabase not configured)")
+		return
+	}
+	
+	// Try to initialize auth controllers
 	controllers := initializeAuthControllers(nil)
 	
-	// Only setup protected routes early if Supabase auth is available
+	// Only setup protected routes early if Supabase auth is actually available
 	// This allows dashboard access after Supabase login without waiting for database
 	if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
 		log.Printf("Setting up admin protected routes early (Supabase auth available)")
 		SetupAdminProtectedRoutes(router, nil, nil)
 	} else {
-		log.Printf("Deferring admin protected routes setup until database is ready")
+		log.Printf("Deferring admin protected routes setup until database is ready (Supabase auth test failed)")
 	}
 }
 
@@ -215,10 +226,21 @@ func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trad
 		authMiddleware = controllers.authController.AuthMiddleware()
 	} else {
 		// Should not happen if SetupAdminProtectedRoutesEarly works correctly
+		// Return 503 Service Unavailable to avoid redirect loops
 		log.Printf("Warning: Setting up admin protected routes without authentication middleware")
-		// Use a dummy middleware that always redirects to login
 		authMiddleware = func(c *gin.Context) {
-			c.Redirect(http.StatusFound, "/admin/login")
+			c.HTML(http.StatusServiceUnavailable, "dashboard.html", gin.H{
+				"stockCount":    0,
+				"strategyCount": 0,
+				"backtestCount": 0,
+				"tradeCount":    0,
+				"userCount":     0,
+				"botRunning":    false,
+				"adminUser":     nil,
+				"page":          "dashboard",
+				"title":         "Dashboard",
+				"dbError":       "Service temporarily unavailable. Authentication system is initializing.",
+			})
 			c.Abort()
 		}
 	}
