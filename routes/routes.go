@@ -184,6 +184,7 @@ func SetupAdminProtectedRoutesEarly(router *gin.Engine) {
 	}
 	
 	// Try to initialize auth controllers
+	// Note: initializeAuthControllers uses caching, so calling it multiple times is safe
 	controllers := initializeAuthControllers(nil)
 	
 	// Only setup protected routes early if Supabase auth is actually available
@@ -214,6 +215,8 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 	adminController := admin.NewAdminController(db, tradingBot)
 
 	// Get auth controllers (will be re-initialized with DB if not using Supabase)
+	// Note: This uses caching, so even if called before with nil db, it will update
+	// the cached controllers with GORM auth if db is now available
 	controllers := initializeAuthControllers(db)
 
 	// Determine which auth middleware to use
