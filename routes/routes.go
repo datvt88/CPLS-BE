@@ -23,8 +23,7 @@ var AuthControllerSetter func(ac *admin.AuthController)
 var cachedAuthControllers *authControllers
 
 // Track if protected routes have been set up to avoid double-registration
-var protectedRoutesSetup bool
-var protectedRoutesSetupMutex sync.Mutex
+var setupProtectedRoutesOnce sync.Once
 
 // authControllers holds the initialized auth controllers
 type authControllers struct {
@@ -203,15 +202,14 @@ func SetupAdminProtectedRoutesEarly(router *gin.Engine) {
 // or later after database initialization when using GORM auth.
 // The routes will gracefully handle nil database/tradingBot by showing appropriate errors.
 func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trading.TradingBot) {
-	// Prevent double-registration of routes
-	protectedRoutesSetupMutex.Lock()
-	defer protectedRoutesSetupMutex.Unlock()
-	
-	if protectedRoutesSetup {
-		log.Printf("Admin protected routes already set up, skipping duplicate registration")
-		return
-	}
+	// Use sync.Once to prevent double-registration of routes
+	setupProtectedRoutesOnce.Do(func() {
+		setupProtectedRoutesImpl(router, db, tradingBot)
+	})
+}
 
+// setupProtectedRoutesImpl is the actual implementation called by sync.Once
+func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *trading.TradingBot) {
 	// Initialize admin controller with trading bot (can be nil)
 	adminController := admin.NewAdminController(db, tradingBot)
 
@@ -310,8 +308,6 @@ func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trad
 		}
 	}
 	
-	// Mark protected routes as set up
-	protectedRoutesSetup = true
 	log.Printf("Admin protected routes setup completed")
 }
 

@@ -111,8 +111,9 @@ func (ac *AdminController) getAdminUser(c *gin.Context) *models.AdminUser {
 	return nil
 }
 
-// checkDatabaseAvailable checks if database is available and returns error response if not
-func (ac *AdminController) checkDatabaseAvailable(c *gin.Context) bool {
+// requireDatabaseAvailable checks if database is available and returns error response if not
+// Returns true if database is available, false otherwise (with error response sent)
+func (ac *AdminController) requireDatabaseAvailable(c *gin.Context) bool {
 	if ac.db == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": "Database not connected. Please wait for system initialization.",
@@ -242,7 +243,7 @@ func (ac *AdminController) SignalsPage(c *gin.Context) {
 
 // FetchHistoricalDataAction fetches historical data
 func (ac *AdminController) FetchHistoricalDataAction(c *gin.Context) {
-	if !ac.checkDatabaseAvailable(c) {
+	if !ac.requireDatabaseAvailable(c) {
 		return
 	}
 	if ac.dataFetcher == nil {
@@ -265,7 +266,7 @@ func (ac *AdminController) FetchHistoricalDataAction(c *gin.Context) {
 
 // CreateStrategyAction creates a new strategy
 func (ac *AdminController) CreateStrategyAction(c *gin.Context) {
-	if !ac.checkDatabaseAvailable(c) {
+	if !ac.requireDatabaseAvailable(c) {
 		return
 	}
 
@@ -285,7 +286,7 @@ func (ac *AdminController) CreateStrategyAction(c *gin.Context) {
 
 // RunBacktestAction runs a backtest
 func (ac *AdminController) RunBacktestAction(c *gin.Context) {
-	if !ac.checkDatabaseAvailable(c) {
+	if !ac.requireDatabaseAvailable(c) {
 		return
 	}
 	if ac.backtestEngine == nil {
@@ -352,7 +353,7 @@ func (ac *AdminController) StopBotAction(c *gin.Context) {
 
 // InitializeStockData initializes sample stock data
 func (ac *AdminController) InitializeStockData(c *gin.Context) {
-	if !ac.checkDatabaseAvailable(c) {
+	if !ac.requireDatabaseAvailable(c) {
 		return
 	}
 	if ac.dataFetcher == nil {
@@ -443,7 +444,7 @@ func (ac *AdminController) APIOverviewPage(c *gin.Context) {
 
 // CreateAdminUserAction creates a new admin user
 func (ac *AdminController) CreateAdminUserAction(c *gin.Context) {
-	if !ac.checkDatabaseAvailable(c) {
+	if !ac.requireDatabaseAvailable(c) {
 		return
 	}
 
@@ -494,7 +495,7 @@ func (ac *AdminController) CreateAdminUserAction(c *gin.Context) {
 
 // UpdateUserStatusAction updates user active status
 func (ac *AdminController) UpdateUserStatusAction(c *gin.Context) {
-	if !ac.checkDatabaseAvailable(c) {
+	if !ac.requireDatabaseAvailable(c) {
 		return
 	}
 
@@ -522,7 +523,7 @@ func (ac *AdminController) UpdateUserStatusAction(c *gin.Context) {
 
 // UpdateUserRoleAction updates user role
 func (ac *AdminController) UpdateUserRoleAction(c *gin.Context) {
-	if !ac.checkDatabaseAvailable(c) {
+	if !ac.requireDatabaseAvailable(c) {
 		return
 	}
 
