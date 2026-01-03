@@ -123,6 +123,9 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 
 			// Add logout as well since it needs the controller
 			adminRoutes.GET("/logout", controllers.supabaseAuthController.Logout)
+
+			// Add connection status endpoint for Supabase
+			adminRoutes.GET("/connection-status", controllers.supabaseAuthController.ConnectionStatusHandler)
 		} else if controllers.authController != nil {
 			// Use GORM-based authentication (only if DB is available)
 			adminRoutes.GET("", controllers.authController.RootRedirect)
@@ -131,6 +134,15 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 
 			// Add logout as well since it needs the controller
 			adminRoutes.GET("/logout", controllers.authController.Logout)
+
+			// Add connection status endpoint for GORM-based auth
+			adminRoutes.GET("/connection-status", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"connected": true,
+					"status":    "connected",
+					"message":   "Connected to database (GORM)",
+				})
+			})
 		} else {
 			// No auth controller available - check if Supabase is configured
 			supabaseURL := os.Getenv("SUPABASE_URL")
@@ -164,6 +176,15 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 			})
 			adminRoutes.GET("/logout", func(c *gin.Context) {
 				c.Redirect(http.StatusFound, "/admin/login")
+			})
+
+			// Add connection status endpoint for when no auth is available
+			adminRoutes.GET("/connection-status", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"connected": false,
+					"status":    "disconnected",
+					"message":   errorMessage,
+				})
 			})
 		}
 	}
