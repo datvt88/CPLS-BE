@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 
 	"go_backend_project/admin"
 	"go_backend_project/controllers"
@@ -20,6 +21,9 @@ var AuthControllerSetter func(ac *admin.AuthController)
 
 // Global cached auth controllers to avoid re-initialization
 var cachedAuthControllers *authControllers
+
+// Track if protected routes have been set up to avoid double-registration
+var setupProtectedRoutesOnce sync.Once
 
 // authControllers holds the initialized auth controllers
 type authControllers struct {
@@ -165,28 +169,80 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 	}
 }
 
+// SetupAdminProtectedRoutesEarly sets up protected admin routes early if Supabase auth is available
+// This is called before database initialization. If Supabase is configured and working,
+// protected routes will be available immediately. Otherwise, they'll be set up after DB init.
+func SetupAdminProtectedRoutesEarly(router *gin.Engine) {
+	// Check if Supabase is configured
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
+	
+	// Only attempt early setup if Supabase is configured
+	if supabaseURL == "" || supabaseServiceKey == "" {
+		log.Printf("Deferring admin protected routes setup until database is ready (Supabase not configured)")
+		return
+	}
+	
+	// Try to initialize auth controllers
+	// Note: initializeAuthControllers uses caching, so calling it multiple times is safe
+	controllers := initializeAuthControllers(nil)
+	
+	// Only setup protected routes early if Supabase auth is actually available
+	// This allows dashboard access after Supabase login without waiting for database
+	if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
+		log.Printf("Setting up admin protected routes early (Supabase auth available)")
+		SetupAdminProtectedRoutes(router, nil, nil)
+	} else {
+		log.Printf("Deferring admin protected routes setup until database is ready (Supabase auth test failed)")
+	}
+}
+
+
 // SetupAdminProtectedRoutes sets up protected admin routes after database is initialized
-// This should be called AFTER SetupAdminRoutes and after database is ready
-// It only sets up the protected routes (dashboard, etc.), not the login routes
+// This can be called early with nil db/tradingBot when Supabase auth is available,
+// or later after database initialization when using GORM auth.
+// The routes will gracefully handle nil database/tradingBot by showing appropriate errors.
 func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trading.TradingBot) {
-	// Initialize admin controller with trading bot
+	// Use sync.Once to prevent double-registration of routes
+	setupProtectedRoutesOnce.Do(func() {
+		setupProtectedRoutesImpl(router, db, tradingBot)
+	})
+}
+
+// setupProtectedRoutesImpl is the actual implementation called by sync.Once
+func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *trading.TradingBot) {
+	// Initialize admin controller with trading bot (can be nil)
 	adminController := admin.NewAdminController(db, tradingBot)
 
 	// Get auth controllers (will be re-initialized with DB if not using Supabase)
+	// Note: This uses caching, so even if called before with nil db, it will update
+	// the cached controllers with GORM auth if db is now available
 	controllers := initializeAuthControllers(db)
 
-	// Only proceed if we have an auth controller
-	if controllers.useSupabaseAuth {
-		// Using Supabase auth - must have the controller
-		if controllers.supabaseAuthController == nil {
-			log.Printf("Warning: Cannot setup admin protected routes - Supabase auth is configured but controller is nil")
-			return
-		}
+	// Determine which auth middleware to use
+	var authMiddleware gin.HandlerFunc
+	if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
+		authMiddleware = controllers.supabaseAuthController.AuthMiddleware()
+	} else if controllers.authController != nil {
+		authMiddleware = controllers.authController.AuthMiddleware()
 	} else {
-		// Using GORM auth - must have the controller
-		if controllers.authController == nil {
-			log.Printf("Warning: Cannot setup admin protected routes - GORM auth controller is not available (DB not ready)")
-			return
+		// Should not happen if SetupAdminProtectedRoutesEarly works correctly
+		// Return 503 Service Unavailable to avoid redirect loops
+		log.Printf("Warning: Setting up admin protected routes without authentication middleware")
+		authMiddleware = func(c *gin.Context) {
+			c.HTML(http.StatusServiceUnavailable, "dashboard.html", gin.H{
+				"stockCount":    0,
+				"strategyCount": 0,
+				"backtestCount": 0,
+				"tradeCount":    0,
+				"userCount":     0,
+				"botRunning":    false,
+				"adminUser":     nil,
+				"page":          "dashboard",
+				"title":         "Dashboard",
+				"dbError":       "Service temporarily unavailable. Authentication system is initializing.",
+			})
+			c.Abort()
 		}
 	}
 
@@ -195,13 +251,7 @@ func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trad
 	// route groups that can have different middlewares. Each group is independent.
 	adminRoutes := router.Group("/admin")
 	protected := adminRoutes.Group("")
-
-	// Apply middleware
-	if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
-		protected.Use(controllers.supabaseAuthController.AuthMiddleware())
-	} else if controllers.authController != nil {
-		protected.Use(controllers.authController.AuthMiddleware())
-	}
+	protected.Use(authMiddleware)
 
 	{
 		protected.GET("/dashboard", adminController.Dashboard)
@@ -260,6 +310,8 @@ func SetupAdminProtectedRoutes(router *gin.Engine, db *gorm.DB, tradingBot *trad
 			actions.POST("/update-user-role", adminController.UpdateUserRoleAction)
 		}
 	}
+	
+	log.Printf("Admin protected routes setup completed")
 }
 
 // SetupRoutes sets up all API routes

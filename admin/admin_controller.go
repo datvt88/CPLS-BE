@@ -28,10 +28,19 @@ type AdminController struct {
 
 // NewAdminController creates a new admin controller
 func NewAdminController(db *gorm.DB, tradingBot *trading.TradingBot) *AdminController {
+	var dataFetcher *datafetcher.DataFetcher
+	var backtestEngine *backtesting.BacktestEngine
+	
+	// Only initialize services that require database if db is available
+	if db != nil {
+		dataFetcher = datafetcher.NewDataFetcher(db)
+		backtestEngine = backtesting.NewBacktestEngine(db)
+	}
+	
 	return &AdminController{
 		db:             db,
-		dataFetcher:    datafetcher.NewDataFetcher(db),
-		backtestEngine: backtesting.NewBacktestEngine(db),
+		dataFetcher:    dataFetcher,
+		backtestEngine: backtestEngine,
 		tradingBot:     tradingBot,
 	}
 }
@@ -39,6 +48,23 @@ func NewAdminController(db *gorm.DB, tradingBot *trading.TradingBot) *AdminContr
 // Dashboard shows admin dashboard
 func (ac *AdminController) Dashboard(c *gin.Context) {
 	adminUser := ac.getAdminUser(c)
+
+	// Check if database is available
+	if ac.db == nil {
+		c.HTML(http.StatusServiceUnavailable, "dashboard.html", gin.H{
+			"stockCount":    0,
+			"strategyCount": 0,
+			"backtestCount": 0,
+			"tradeCount":    0,
+			"userCount":     0,
+			"botRunning":    false,
+			"adminUser":     adminUser,
+			"page":          "dashboard",
+			"title":         "Dashboard",
+			"dbError":       "Database not connected. Please wait for system initialization.",
+		})
+		return
+	}
 
 	// Get statistics
 	var stockCount int64
@@ -56,13 +82,19 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 	var userCount int64
 	ac.db.Model(&models.User{}).Count(&userCount)
 
+	// Check if trading bot is running (handle nil gracefully)
+	botRunning := false
+	if ac.tradingBot != nil {
+		botRunning = ac.tradingBot.IsRunning()
+	}
+
 	c.HTML(http.StatusOK, "dashboard.html", gin.H{
 		"stockCount":    stockCount,
 		"strategyCount": strategyCount,
 		"backtestCount": backtestCount,
 		"tradeCount":    tradeCount,
 		"userCount":     userCount,
-		"botRunning":    ac.tradingBot.IsRunning(),
+		"botRunning":    botRunning,
 		"adminUser":     adminUser,
 		"page":          "dashboard",
 		"title":         "Dashboard",
@@ -77,6 +109,18 @@ func (ac *AdminController) getAdminUser(c *gin.Context) *models.AdminUser {
 		}
 	}
 	return nil
+}
+
+// requireDatabaseAvailable checks if database is available and returns error response if not
+// Returns true if database is available, false otherwise (with error response sent)
+func (ac *AdminController) requireDatabaseAvailable(c *gin.Context) bool {
+	if ac.db == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "Database not connected. Please wait for system initialization.",
+		})
+		return false
+	}
+	return true
 }
 
 // StocksPage shows stocks management page
@@ -136,6 +180,20 @@ func (ac *AdminController) BacktestsPage(c *gin.Context) {
 func (ac *AdminController) TradingBotPage(c *gin.Context) {
 	adminUser := ac.getAdminUser(c)
 
+	// Check if database is available
+	if ac.db == nil {
+		c.HTML(http.StatusServiceUnavailable, "trading_bot.html", gin.H{
+			"botRunning": false,
+			"signals":    []models.Signal{},
+			"trades":     []models.Trade{},
+			"adminUser":  adminUser,
+			"page":       "bot",
+			"title":      "Trading Bot",
+			"dbError":    "Database not connected. Trading bot requires database.",
+		})
+		return
+	}
+
 	var signals []models.Signal
 	ac.db.Preload("Stock").Preload("Strategy").
 		Where("is_active = ?", true).
@@ -149,8 +207,14 @@ func (ac *AdminController) TradingBotPage(c *gin.Context) {
 		Limit(20).
 		Find(&trades)
 
+	// Check if trading bot is running (handle nil gracefully)
+	botRunning := false
+	if ac.tradingBot != nil {
+		botRunning = ac.tradingBot.IsRunning()
+	}
+
 	c.HTML(http.StatusOK, "trading_bot.html", gin.H{
-		"botRunning": ac.tradingBot.IsRunning(),
+		"botRunning": botRunning,
 		"signals":    signals,
 		"trades":     trades,
 		"adminUser":  adminUser,
@@ -163,9 +227,15 @@ func (ac *AdminController) TradingBotPage(c *gin.Context) {
 func (ac *AdminController) SignalsPage(c *gin.Context) {
 	adminUser := ac.getAdminUser(c)
 
+	// Check if trading bot is running (handle nil gracefully)
+	botRunning := false
+	if ac.tradingBot != nil {
+		botRunning = ac.tradingBot.IsRunning()
+	}
+
 	c.HTML(http.StatusOK, "signals.html", gin.H{
 		"adminUser":  adminUser,
-		"botRunning": ac.tradingBot.IsRunning(),
+		"botRunning": botRunning,
 		"page":       "signals",
 		"title":      "Trading Signals",
 	})
@@ -173,6 +243,14 @@ func (ac *AdminController) SignalsPage(c *gin.Context) {
 
 // FetchHistoricalDataAction fetches historical data
 func (ac *AdminController) FetchHistoricalDataAction(c *gin.Context) {
+	if !ac.requireDatabaseAvailable(c) {
+		return
+	}
+	if ac.dataFetcher == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Data fetcher not initialized"})
+		return
+	}
+
 	symbol := c.PostForm("symbol")
 	startDate, _ := time.Parse("2006-01-02", c.PostForm("start_date"))
 	endDate, _ := time.Parse("2006-01-02", c.PostForm("end_date"))
@@ -188,6 +266,10 @@ func (ac *AdminController) FetchHistoricalDataAction(c *gin.Context) {
 
 // CreateStrategyAction creates a new strategy
 func (ac *AdminController) CreateStrategyAction(c *gin.Context) {
+	if !ac.requireDatabaseAvailable(c) {
+		return
+	}
+
 	var strategy models.TradingStrategy
 	if err := c.ShouldBind(&strategy); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -204,6 +286,14 @@ func (ac *AdminController) CreateStrategyAction(c *gin.Context) {
 
 // RunBacktestAction runs a backtest
 func (ac *AdminController) RunBacktestAction(c *gin.Context) {
+	if !ac.requireDatabaseAvailable(c) {
+		return
+	}
+	if ac.backtestEngine == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Backtest engine not initialized"})
+		return
+	}
+
 	strategyID, _ := strconv.ParseUint(c.PostForm("strategy_id"), 10, 32)
 	startDate, _ := time.Parse("2006-01-02", c.PostForm("start_date"))
 	endDate, _ := time.Parse("2006-01-02", c.PostForm("end_date"))
@@ -240,6 +330,10 @@ func (ac *AdminController) RunBacktestAction(c *gin.Context) {
 
 // StartBotAction starts the trading bot
 func (ac *AdminController) StartBotAction(c *gin.Context) {
+	if ac.tradingBot == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Trading bot not initialized (database not ready)"})
+		return
+	}
 	if err := ac.tradingBot.Start(); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -249,12 +343,24 @@ func (ac *AdminController) StartBotAction(c *gin.Context) {
 
 // StopBotAction stops the trading bot
 func (ac *AdminController) StopBotAction(c *gin.Context) {
+	if ac.tradingBot == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Trading bot not initialized (database not ready)"})
+		return
+	}
 	ac.tradingBot.Stop()
 	c.JSON(http.StatusOK, gin.H{"message": "Bot stopped"})
 }
 
 // InitializeStockData initializes sample stock data
 func (ac *AdminController) InitializeStockData(c *gin.Context) {
+	if !ac.requireDatabaseAvailable(c) {
+		return
+	}
+	if ac.dataFetcher == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Data fetcher not initialized"})
+		return
+	}
+
 	if err := ac.dataFetcher.FetchStockList(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -338,6 +444,10 @@ func (ac *AdminController) APIOverviewPage(c *gin.Context) {
 
 // CreateAdminUserAction creates a new admin user
 func (ac *AdminController) CreateAdminUserAction(c *gin.Context) {
+	if !ac.requireDatabaseAvailable(c) {
+		return
+	}
+
 	var request struct {
 		Username string `form:"username" binding:"required"`
 		Password string `form:"password" binding:"required"`
@@ -385,6 +495,10 @@ func (ac *AdminController) CreateAdminUserAction(c *gin.Context) {
 
 // UpdateUserStatusAction updates user active status
 func (ac *AdminController) UpdateUserStatusAction(c *gin.Context) {
+	if !ac.requireDatabaseAvailable(c) {
+		return
+	}
+
 	userID := c.PostForm("user_id")
 	if userID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
@@ -409,6 +523,10 @@ func (ac *AdminController) UpdateUserStatusAction(c *gin.Context) {
 
 // UpdateUserRoleAction updates user role
 func (ac *AdminController) UpdateUserRoleAction(c *gin.Context) {
+	if !ac.requireDatabaseAvailable(c) {
+		return
+	}
+
 	userID := c.PostForm("user_id")
 	if userID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
