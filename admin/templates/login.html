@@ -55,6 +55,55 @@
         .form-control {
             border-radius: 0 8px 8px 0;
         }
+        .connection-status {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        .connection-status.connected {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .connection-status.disconnected {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .connection-status.checking {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        .connection-status i {
+            margin-right: 8px;
+            font-size: 1.1rem;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.green {
+            background-color: #28a745;
+        }
+        .status-dot.red {
+            background-color: #dc3545;
+        }
+        .status-dot.yellow {
+            background-color: #ffc107;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
     </style>
 </head>
 <body>
@@ -62,6 +111,12 @@
         <div class="login-header">
             <h2><i class="bi bi-shield-lock"></i> CPLS Admin</h2>
             <p>Vietnamese Stock Trading System</p>
+        </div>
+
+        <!-- Connection Status Indicator -->
+        <div id="connection-status" class="connection-status checking">
+            <span class="status-dot yellow"></span>
+            <span id="status-text">Checking database connection...</span>
         </div>
 
         {{ if .error }}
@@ -98,5 +153,44 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Check connection status on page load and periodically
+        function checkConnectionStatus() {
+            const statusElement = document.getElementById('connection-status');
+            const statusText = document.getElementById('status-text');
+            const statusDot = statusElement.querySelector('.status-dot');
+
+            fetch('/admin/connection-status')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('HTTP error! status: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.connected) {
+                        statusElement.className = 'connection-status connected';
+                        statusText.textContent = data.message || 'Connected to Supabase';
+                        statusDot.className = 'status-dot green';
+                    } else {
+                        statusElement.className = 'connection-status disconnected';
+                        statusText.textContent = data.message || 'Cannot connect to database';
+                        statusDot.className = 'status-dot red';
+                    }
+                })
+                .catch(error => {
+                    statusElement.className = 'connection-status disconnected';
+                    statusText.textContent = 'Connection check failed';
+                    statusDot.className = 'status-dot red';
+                    console.error('Connection status check error:', error);
+                });
+        }
+
+        // Check status immediately on page load
+        checkConnectionStatus();
+
+        // Check status every 60 seconds to reduce server load
+        setInterval(checkConnectionStatus, 60000);
+    </script>
 </body>
 </html>

@@ -335,3 +335,25 @@ func (ac *SupabaseAuthController) GetSupabaseClient() *services.SupabaseDBClient
 func (ac *SupabaseAuthController) TestConnection() error {
 	return ac.supabaseClient.TestConnection()
 }
+
+// ConnectionStatusHandler returns the Supabase connection status as JSON
+func (ac *SupabaseAuthController) ConnectionStatusHandler(c *gin.Context) {
+	err := ac.supabaseClient.TestConnection()
+	if err != nil {
+		// Log detailed error server-side for debugging
+		log.Printf("Supabase connection test failed: %v", err)
+		
+		c.JSON(http.StatusOK, gin.H{
+			"connected": false,
+			"status":    "disconnected",
+			"message":   "Cannot connect to Supabase database",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"connected": true,
+		"status":    "connected",
+		"message":   "Successfully connected to Supabase",
+	})
+}

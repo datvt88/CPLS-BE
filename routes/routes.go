@@ -123,6 +123,9 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 
 			// Add logout as well since it needs the controller
 			adminRoutes.GET("/logout", controllers.supabaseAuthController.Logout)
+
+			// Add connection status endpoint for Supabase
+			adminRoutes.GET("/connection-status", controllers.supabaseAuthController.ConnectionStatusHandler)
 		} else if controllers.authController != nil {
 			// Use GORM-based authentication (only if DB is available)
 			adminRoutes.GET("", controllers.authController.RootRedirect)
@@ -131,6 +134,15 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 
 			// Add logout as well since it needs the controller
 			adminRoutes.GET("/logout", controllers.authController.Logout)
+
+			// Add connection status endpoint for GORM-based auth
+			adminRoutes.GET("/connection-status", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"connected": true,
+					"status":    "connected",
+					"message":   "Connected to database (GORM)",
+				})
+			})
 		} else {
 			// No auth controller available - check if Supabase is configured
 			supabaseURL := os.Getenv("SUPABASE_URL")
@@ -165,6 +177,15 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 			adminRoutes.GET("/logout", func(c *gin.Context) {
 				c.Redirect(http.StatusFound, "/admin/login")
 			})
+
+			// Add connection status endpoint for when no auth is available
+			adminRoutes.GET("/connection-status", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"connected": false,
+					"status":    "disconnected",
+					"message":   errorMessage,
+				})
+			})
 		}
 	}
 }
@@ -176,17 +197,17 @@ func SetupAdminProtectedRoutesEarly(router *gin.Engine) {
 	// Check if Supabase is configured
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
-	
+
 	// Only attempt early setup if Supabase is configured
 	if supabaseURL == "" || supabaseServiceKey == "" {
 		log.Printf("Deferring admin protected routes setup until database is ready (Supabase not configured)")
 		return
 	}
-	
+
 	// Try to initialize auth controllers
 	// Note: initializeAuthControllers uses caching, so calling it multiple times is safe
 	controllers := initializeAuthControllers(nil)
-	
+
 	// Only setup protected routes early if Supabase auth is actually available
 	// This allows dashboard access after Supabase login without waiting for database
 	if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
@@ -196,7 +217,6 @@ func SetupAdminProtectedRoutesEarly(router *gin.Engine) {
 		log.Printf("Deferring admin protected routes setup until database is ready (Supabase auth test failed)")
 	}
 }
-
 
 // SetupAdminProtectedRoutes sets up protected admin routes after database is initialized
 // This can be called early with nil db/tradingBot when Supabase auth is available,
@@ -310,7 +330,7 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 			actions.POST("/update-user-role", adminController.UpdateUserRoleAction)
 		}
 	}
-	
+
 	log.Printf("Admin protected routes setup completed")
 }
 
