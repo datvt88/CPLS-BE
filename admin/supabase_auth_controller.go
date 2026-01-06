@@ -154,14 +154,32 @@ func (ac *SupabaseAuthController) LoginPage(c *gin.Context) {
 		return
 	}
 
+	// Check Supabase connection status
+	connectionError := ""
+	if err := ac.supabaseClient.TestConnection(); err != nil {
+		log.Printf("Supabase connection check failed: %v", err)
+		connectionError = "Không thể kết nối đến Supabase. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên."
+	}
+
 	c.HTML(http.StatusOK, "login.html", gin.H{
 		"error":           c.Query("error"),
+		"connectionError": connectionError,
 		"supabaseEnabled": false, // Only using Supabase DB, not Supabase Auth
 	})
 }
 
 // Login handles the login form submission
 func (ac *SupabaseAuthController) Login(c *gin.Context) {
+	// Check Supabase connection before attempting login
+	if err := ac.supabaseClient.TestConnection(); err != nil {
+		log.Printf("Supabase connection check failed during login: %v", err)
+		c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+			"error":           "Không thể đăng nhập do lỗi kết nối cơ sở dữ liệu.",
+			"connectionError": "Không thể kết nối đến Supabase. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên.",
+		})
+		return
+	}
+
 	username := c.PostForm("username")
 	password := c.PostForm("password")
 

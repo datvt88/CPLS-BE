@@ -69,8 +69,24 @@ func (ac *AuthController) LoginPage(c *gin.Context) {
 		return
 	}
 
+	// Check database connection status
+	connectionError := ""
+	if ac.db != nil {
+		sqlDB, err := ac.db.DB()
+		if err != nil {
+			log.Printf("Database connection check failed: %v", err)
+			connectionError = "Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên."
+		} else if err := sqlDB.Ping(); err != nil {
+			log.Printf("Database ping failed: %v", err)
+			connectionError = "Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên."
+		}
+	} else {
+		connectionError = "Cơ sở dữ liệu chưa được khởi tạo. Vui lòng liên hệ quản trị viên."
+	}
+
 	c.HTML(http.StatusOK, "login.html", gin.H{
 		"error":            c.Query("error"),
+		"connectionError":  connectionError,
 		"supabaseEnabled":  isSupabaseEnabled(),
 	})
 }
@@ -97,6 +113,35 @@ func (ac *AuthController) RootRedirect(c *gin.Context) {
 // Login handles the login form submission
 // Supports both local admin login (username/password) and Supabase Auth login (email/password)
 func (ac *AuthController) Login(c *gin.Context) {
+	// Check database connection before attempting login
+	if ac.db != nil {
+		sqlDB, err := ac.db.DB()
+		if err != nil {
+			log.Printf("Database connection check failed during login: %v", err)
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+				"error":            "Không thể đăng nhập do lỗi kết nối cơ sở dữ liệu.",
+				"connectionError":  "Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên.",
+				"supabaseEnabled":  isSupabaseEnabled(),
+			})
+			return
+		} else if err := sqlDB.Ping(); err != nil {
+			log.Printf("Database ping failed during login: %v", err)
+			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+				"error":            "Không thể đăng nhập do lỗi kết nối cơ sở dữ liệu.",
+				"connectionError":  "Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên.",
+				"supabaseEnabled":  isSupabaseEnabled(),
+			})
+			return
+		}
+	} else {
+		c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
+			"error":            "Không thể đăng nhập do lỗi kết nối cơ sở dữ liệu.",
+			"connectionError":  "Cơ sở dữ liệu chưa được khởi tạo. Vui lòng liên hệ quản trị viên.",
+			"supabaseEnabled":  isSupabaseEnabled(),
+		})
+		return
+	}
+
 	username := c.PostForm("username")
 	password := c.PostForm("password")
 	loginMethod := c.PostForm("login_method") // "local" or "supabase"
