@@ -394,6 +394,45 @@ func setupHealthEndpoints(router *gin.Engine) {
 	})
 }
 
+// isAllowedOrigin checks if the origin is in the allowlist
+func isAllowedOrigin(origin string) bool {
+	// Get allowed origins from environment variable (comma-separated)
+	allowedOriginsEnv := os.Getenv("CORS_ALLOWED_ORIGINS")
+	
+	// Default allowed origins for development and common deployments
+	defaultAllowedOrigins := []string{
+		"http://localhost:3000",     // Local frontend development
+		"http://localhost:8080",     // Local backend
+		"https://localhost:3000",    // Local HTTPS frontend
+	}
+	
+	// Parse allowed origins from environment
+	var allowedOrigins []string
+	if allowedOriginsEnv != "" {
+		allowedOrigins = strings.Split(allowedOriginsEnv, ",")
+		for i := range allowedOrigins {
+			allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
+		}
+	} else {
+		allowedOrigins = defaultAllowedOrigins
+	}
+	
+	// Allow all Cloud Run domains (*.run.app) and Supabase domains (*.supabase.co)
+	// These are trusted deployment platforms for this application
+	if strings.HasSuffix(origin, ".run.app") || strings.HasSuffix(origin, ".supabase.co") {
+		return true
+	}
+	
+	// Check if origin is in the allowlist
+	for _, allowed := range allowedOrigins {
+		if origin == allowed {
+			return true
+		}
+	}
+	
+	return false
+}
+
 // corsMiddleware returns a CORS middleware handler
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -403,8 +442,8 @@ func corsMiddleware() gin.HandlerFunc {
 		// Access-Control-Allow-Origin CANNOT be "*" - it must be a specific origin.
 		// For same-origin requests (no Origin header), we don't need to set CORS headers
 		// since the browser will allow the request by default.
-		if origin != "" {
-			// Cross-origin request - set CORS headers with specific origin
+		if origin != "" && isAllowedOrigin(origin) {
+			// Cross-origin request from allowed origin - set CORS headers
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Access-Control-Allow-Credentials", "true")
 		}
