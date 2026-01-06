@@ -327,6 +327,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	userController := controllers.NewUserController(db)
 	subscriptionController := controllers.NewSubscriptionController(db)
 	screenerController := controllers.NewScreenerController(db)
+	crawlerController := controllers.NewCrawlerController()
 
 	// Setup protected admin routes now that DB is ready
 	SetupAdminProtectedRoutes(router, db, tradingBot)
@@ -519,6 +520,16 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 
 			// Portfolio
 			trading.GET("/portfolio", tradingController.GetPortfolio)
+		}
+
+		// Crawler routes (MongoDB-based data crawling)
+		crawler := api.Group("/crawler")
+		{
+			crawler.GET("/status", crawlerController.GetCrawlerStatus)
+			crawler.POST("/stocks", crawlerController.CrawlStocks)
+			crawler.POST("/prices", crawlerController.CrawlPricesAndIndicators)
+			crawler.POST("/all", crawlerController.CrawlAll)
+			crawler.POST("/indexes", crawlerController.CreateIndexes)
 		}
 	}
 }
