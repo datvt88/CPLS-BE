@@ -140,7 +140,6 @@ func main() {
 				log.Printf("Warning: Failed to create MongoDB indexes: %v", err)
 			}
 		}
-		initializeGlobalServices()
 
 		// Mark database as ready
 		dbInitMutex.Lock()

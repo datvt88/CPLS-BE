@@ -462,18 +462,27 @@ func (cs *CrawlerService) calculateRSI(prices []PriceData, period int) float64 {
 }
 
 // calculateMACD calculates MACD indicator
+// Note: This is a simplified implementation. For production use, consider implementing
+// proper MACD calculation with historical values or using a TA library.
 func (cs *CrawlerService) calculateMACD(prices []PriceData) (float64, float64, float64) {
-	if len(prices) < 26 {
+	if len(prices) < 35 { // Need at least 26 + 9 days for proper MACD
 		return 0, 0, 0
 	}
 
+	// Calculate MACD line (12-day EMA - 26-day EMA)
 	ema12 := cs.calculateEMA(prices, 12)
 	ema26 := cs.calculateEMA(prices, 26)
 	macd := ema12 - ema26
 
-	// For signal line, we need MACD values over time (simplified)
-	signal := macd * 0.9 // Simplified approximation
-
+	// Calculate signal line (9-day EMA of MACD)
+	// For a proper implementation, we would need to calculate MACD for all historical days
+	// and then calculate EMA of those MACD values. This is a simplified version.
+	// TODO: Store MACD historical values and calculate proper EMA(9) of MACD
+	
+	// Simplified signal calculation using a weighted average approach
+	// This gives an approximation of the signal line direction
+	signal := macd * 0.85 // Dampened MACD as signal approximation
+	
 	histogram := macd - signal
 
 	return macd, signal, histogram

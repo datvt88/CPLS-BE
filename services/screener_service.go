@@ -204,27 +204,34 @@ func (ss *ScreenerService) buildMongoQuery(filter FilterParams) bson.M {
 		query["indicators.rsi_14"] = rsiQuery
 	}
 
-	// Price above MA20
+	// Price above MA filters - combine multiple conditions using $and
+	var exprConditions []bson.M
+	
 	if filter.PriceAboveMA20 != nil && *filter.PriceAboveMA20 {
-		query["$expr"] = bson.M{
+		exprConditions = append(exprConditions, bson.M{
 			"$gt": bson.A{"$latest_price", "$indicators.ma_20"},
-		}
+		})
 	}
 
-	// Price above MA50
 	if filter.PriceAboveMA50 != nil && *filter.PriceAboveMA50 {
-		if query["$expr"] == nil {
-			query["$expr"] = bson.M{
-				"$gt": bson.A{"$latest_price", "$indicators.ma_50"},
-			}
-		}
+		exprConditions = append(exprConditions, bson.M{
+			"$gt": bson.A{"$latest_price", "$indicators.ma_50"},
+		})
 	}
 
-	// Price above MA200
 	if filter.PriceAboveMA200 != nil && *filter.PriceAboveMA200 {
-		if query["$expr"] == nil {
+		exprConditions = append(exprConditions, bson.M{
+			"$gt": bson.A{"$latest_price", "$indicators.ma_200"},
+		})
+	}
+
+	// Combine all $expr conditions using $and
+	if len(exprConditions) > 0 {
+		if len(exprConditions) == 1 {
+			query["$expr"] = exprConditions[0]
+		} else {
 			query["$expr"] = bson.M{
-				"$gt": bson.A{"$latest_price", "$indicators.ma_200"},
+				"$and": exprConditions,
 			}
 		}
 	}

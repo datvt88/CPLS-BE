@@ -134,12 +134,12 @@ func (cc *CrawlerController) CrawlAll(c *gin.Context) {
 		}
 		log.Printf("Crawled %d stocks", count)
 
-		// Step 2: Get all stock codes from MongoDB
-		// For now, we'll use common Vietnamese stocks
-		// In production, this should query MongoDB stocks collection
+		// Step 2: Get all stock codes from MongoDB stocks collection
+		// TODO: Query MongoDB to get actual stock list instead of hardcoded list
+		// For initial implementation, using top Vietnamese stocks
 		stockCodes := []string{
 			"VNM", "VIC", "VHM", "HPG", "TCB", "VCB", "BID", "CTG", "MBB", "ACB",
-			"MSN", "VRE", "VPB", "PLX", "GAS", "SAB", "POW", "VNM", "SSI", "FPT",
+			"MSN", "VRE", "VPB", "PLX", "GAS", "SAB", "POW", "SSI", "FPT", "VHC",
 		}
 
 		log.Printf("Step 2: Crawling prices and indicators for %d stocks...", len(stockCodes))
