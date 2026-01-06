@@ -41,6 +41,9 @@ func main() {
 		log.Printf("Warning: Config load issue: %v", err)
 	}
 
+	// Initialize CORS configuration at startup
+	initCORSConfig()
+
 	// Set Gin mode based on environment
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -394,19 +397,100 @@ func setupHealthEndpoints(router *gin.Engine) {
 	})
 }
 
+// allowedOrigins is initialized at startup with parsed CORS origins
+// These variables are written once in initCORSConfig() before any concurrent access,
+// then read-only during request handling. This pattern is safe without mutex protection.
+var allowedOrigins []string
+var allowedDomainSuffixes []string
+
+// initCORSConfig initializes CORS configuration at application startup
+// MUST be called before starting the HTTP server to ensure thread-safe access
+func initCORSConfig() {
+	// Get allowed origins from environment variable (comma-separated)
+	allowedOriginsEnv := os.Getenv("CORS_ALLOWED_ORIGINS")
+	
+	// Default allowed origins for development
+	defaultAllowedOrigins := []string{
+		"http://localhost:3000",     // Local frontend development
+		"http://localhost:8080",     // Local backend
+		"https://localhost:3000",    // Local HTTPS frontend
+	}
+	
+	// Parse allowed origins from environment
+	if allowedOriginsEnv != "" {
+		origins := strings.Split(allowedOriginsEnv, ",")
+		for _, origin := range origins {
+			trimmed := strings.TrimSpace(origin)
+			if trimmed != "" {
+				allowedOrigins = append(allowedOrigins, trimmed)
+			}
+		}
+	} else {
+		allowedOrigins = defaultAllowedOrigins
+	}
+	
+	// Parse allowed domain suffixes from environment (for trusted platforms)
+	// Format: comma-separated list of domain suffixes (e.g., ".run.app,.supabase.co")
+	allowedSuffixesEnv := os.Getenv("CORS_ALLOWED_DOMAIN_SUFFIXES")
+	if allowedSuffixesEnv != "" {
+		suffixes := strings.Split(allowedSuffixesEnv, ",")
+		for _, suffix := range suffixes {
+			trimmed := strings.TrimSpace(suffix)
+			if trimmed != "" {
+				allowedDomainSuffixes = append(allowedDomainSuffixes, trimmed)
+			}
+		}
+	} else {
+		// Default: Allow Cloud Run and Supabase domains
+		// For production, set CORS_ALLOWED_DOMAIN_SUFFIXES to restrict to specific domains
+		allowedDomainSuffixes = []string{
+			".run.app",     // Google Cloud Run
+			".supabase.co", // Supabase
+		}
+	}
+	
+	log.Printf("CORS: Allowed %d specific origins and %d domain suffixes", len(allowedOrigins), len(allowedDomainSuffixes))
+}
+
+// isAllowedOrigin checks if the origin is in the allowlist
+func isAllowedOrigin(origin string) bool {
+	// Check exact matches first (most secure)
+	for _, allowed := range allowedOrigins {
+		if origin == allowed {
+			return true
+		}
+	}
+	
+	// Check domain suffixes (for trusted platforms)
+	// Note: Only allows if the origin is HTTPS (production) to prevent subdomain attacks on HTTP
+	if strings.HasPrefix(origin, "https://") {
+		for _, suffix := range allowedDomainSuffixes {
+			if strings.HasSuffix(origin, suffix) {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
 // corsMiddleware returns a CORS middleware handler
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
-		if origin == "" {
-			origin = "*"
+		
+		// IMPORTANT: When Access-Control-Allow-Credentials is true,
+		// Access-Control-Allow-Origin CANNOT be "*" - it must be a specific origin.
+		// For same-origin requests (no Origin header), we don't need to set CORS headers
+		// since the browser will allow the request by default.
+		if origin != "" && isAllowedOrigin(origin) {
+			// Cross-origin request from allowed origin - set all CORS headers
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Requested-With")
+			c.Header("Access-Control-Max-Age", "86400")
 		}
-
-		c.Header("Access-Control-Allow-Origin", origin)
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Requested-With")
-		c.Header("Access-Control-Allow-Credentials", "true")
-		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
