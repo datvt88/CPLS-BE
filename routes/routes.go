@@ -460,6 +460,14 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 			screener.GET("/overbought", screenerController.GetOverboughtStocks)
 			screener.GET("/bullish", screenerController.GetBullishStocks)
 			screener.GET("/volume-spike", screenerController.GetVolumeSpike)
+
+			// MongoDB-based screener endpoints
+			screener.POST("/mongo/screen", screenerController.ScreenMongo)
+			screener.GET("/mongo/oversold", screenerController.GetOversoldMongo)
+			screener.GET("/mongo/overbought", screenerController.GetOverboughtMongo)
+			screener.GET("/mongo/bullish", screenerController.GetBullishMongo)
+			screener.GET("/mongo/stock/:code", screenerController.GetStockIndicatorsMongo)
+			screener.GET("/mongo/statistics", screenerController.GetMarketStatistics)
 		}
 
 		// Market routes
