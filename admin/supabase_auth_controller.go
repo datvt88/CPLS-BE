@@ -116,6 +116,36 @@ func isSecureModeSupabase() bool {
 	return os.Getenv("ENVIRONMENT") == "production"
 }
 
+// setSessionCookie sets the admin session cookie with proper Cloud Run configuration
+func setSessionCookie(c *gin.Context, token string, maxAge int) {
+	// For Cloud Run: Use Path="/", Secure=true in production, SameSite=None for cross-origin
+	secure := isSecureModeSupabase()
+	sameSite := http.SameSiteDefaultMode
+	
+	if secure {
+		// For HTTPS (Cloud Run production), use SameSite=None to allow cross-origin
+		sameSite = http.SameSiteNoneMode
+	} else {
+		// For local development (HTTP), use SameSite=Lax
+		sameSite = http.SameSiteLaxMode
+	}
+	
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "admin_session",
+		Value:    token,
+		Path:     "/", // Changed from "/admin" to "/" for broader access
+		MaxAge:   maxAge,
+		Secure:   secure,
+		HttpOnly: true,
+		SameSite: sameSite,
+	})
+}
+
+// clearSessionCookie removes the admin session cookie
+func clearSessionCookie(c *gin.Context) {
+	setSessionCookie(c, "", -1)
+}
+
 // LoginPage shows the login page
 func (ac *SupabaseAuthController) LoginPage(c *gin.Context) {
 	// Check if already logged in
@@ -215,7 +245,7 @@ func (ac *SupabaseAuthController) Login(c *gin.Context) {
 	}()
 
 	// Set session cookie (7 days)
-	c.SetCookie("admin_session", token, SessionCookieMaxAge, "/admin", "", isSecureModeSupabase(), true)
+	setSessionCookie(c, token, SessionCookieMaxAge)
 
 	log.Printf("Admin user %s logged in successfully via Supabase", username)
 	c.Redirect(http.StatusFound, "/admin/dashboard")
@@ -231,7 +261,8 @@ func (ac *SupabaseAuthController) Logout(c *gin.Context) {
 		ac.supabaseClient.DeleteAdminSession(token)
 	}
 
-	c.SetCookie("admin_session", "", -1, "/admin", "", isSecureModeSupabase(), true)
+	// Clear session cookie
+	clearSessionCookie(c)
 	c.Redirect(http.StatusFound, "/admin/login")
 }
 
@@ -284,7 +315,7 @@ func (ac *SupabaseAuthController) AuthMiddleware() gin.HandlerFunc {
 			// Extend in DB asynchronously
 			go ac.supabaseClient.ExtendAdminSession(token, newExpiry)
 			// Refresh cookie
-			c.SetCookie("admin_session", token, SessionCookieMaxAge, "/admin", "", isSecureModeSupabase(), true)
+			setSessionCookie(c, token, SessionCookieMaxAge)
 		}
 
 		c.Next()

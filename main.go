@@ -49,6 +49,11 @@ func main() {
 	// Create Gin router
 	router := gin.New()
 
+	// Configure trusted proxies for Cloud Run
+	// Set to nil to trust all proxies (Cloud Run Load Balancer)
+	// This is required for proper HTTPS detection behind Cloud Run proxy
+	router.SetTrustedProxies(nil)
+
 	// Add middlewares
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
