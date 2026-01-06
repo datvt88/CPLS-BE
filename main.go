@@ -398,10 +398,13 @@ func setupHealthEndpoints(router *gin.Engine) {
 }
 
 // allowedOrigins is initialized at startup with parsed CORS origins
+// These variables are written once in initCORSConfig() before any concurrent access,
+// then read-only during request handling. This pattern is safe without mutex protection.
 var allowedOrigins []string
 var allowedDomainSuffixes []string
 
 // initCORSConfig initializes CORS configuration at application startup
+// MUST be called before starting the HTTP server to ensure thread-safe access
 func initCORSConfig() {
 	// Get allowed origins from environment variable (comma-separated)
 	allowedOriginsEnv := os.Getenv("CORS_ALLOWED_ORIGINS")
