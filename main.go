@@ -41,6 +41,9 @@ func main() {
 		log.Printf("Warning: Config load issue: %v", err)
 	}
 
+	// Initialize CORS configuration at startup
+	initCORSConfig()
+
 	// Set Gin mode based on environment
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -394,12 +397,16 @@ func setupHealthEndpoints(router *gin.Engine) {
 	})
 }
 
-// isAllowedOrigin checks if the origin is in the allowlist
-func isAllowedOrigin(origin string) bool {
+// allowedOrigins is initialized at startup with parsed CORS origins
+var allowedOrigins []string
+var allowedDomainSuffixes []string
+
+// initCORSConfig initializes CORS configuration at application startup
+func initCORSConfig() {
 	// Get allowed origins from environment variable (comma-separated)
 	allowedOriginsEnv := os.Getenv("CORS_ALLOWED_ORIGINS")
 	
-	// Default allowed origins for development and common deployments
+	// Default allowed origins for development
 	defaultAllowedOrigins := []string{
 		"http://localhost:3000",     // Local frontend development
 		"http://localhost:8080",     // Local backend
@@ -407,26 +414,57 @@ func isAllowedOrigin(origin string) bool {
 	}
 	
 	// Parse allowed origins from environment
-	var allowedOrigins []string
 	if allowedOriginsEnv != "" {
-		allowedOrigins = strings.Split(allowedOriginsEnv, ",")
-		for i := range allowedOrigins {
-			allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
+		origins := strings.Split(allowedOriginsEnv, ",")
+		for _, origin := range origins {
+			trimmed := strings.TrimSpace(origin)
+			if trimmed != "" {
+				allowedOrigins = append(allowedOrigins, trimmed)
+			}
 		}
 	} else {
 		allowedOrigins = defaultAllowedOrigins
 	}
 	
-	// Allow all Cloud Run domains (*.run.app) and Supabase domains (*.supabase.co)
-	// These are trusted deployment platforms for this application
-	if strings.HasSuffix(origin, ".run.app") || strings.HasSuffix(origin, ".supabase.co") {
-		return true
+	// Parse allowed domain suffixes from environment (for trusted platforms)
+	// Format: comma-separated list of domain suffixes (e.g., ".run.app,.supabase.co")
+	allowedSuffixesEnv := os.Getenv("CORS_ALLOWED_DOMAIN_SUFFIXES")
+	if allowedSuffixesEnv != "" {
+		suffixes := strings.Split(allowedSuffixesEnv, ",")
+		for _, suffix := range suffixes {
+			trimmed := strings.TrimSpace(suffix)
+			if trimmed != "" {
+				allowedDomainSuffixes = append(allowedDomainSuffixes, trimmed)
+			}
+		}
+	} else {
+		// Default: Allow Cloud Run and Supabase domains
+		// For production, set CORS_ALLOWED_DOMAIN_SUFFIXES to restrict to specific domains
+		allowedDomainSuffixes = []string{
+			".run.app",     // Google Cloud Run
+			".supabase.co", // Supabase
+		}
 	}
 	
-	// Check if origin is in the allowlist
+	log.Printf("CORS: Allowed %d specific origins and %d domain suffixes", len(allowedOrigins), len(allowedDomainSuffixes))
+}
+
+// isAllowedOrigin checks if the origin is in the allowlist
+func isAllowedOrigin(origin string) bool {
+	// Check exact matches first (most secure)
 	for _, allowed := range allowedOrigins {
 		if origin == allowed {
 			return true
+		}
+	}
+	
+	// Check domain suffixes (for trusted platforms)
+	// Note: Only allows if the origin is HTTPS (production) to prevent subdomain attacks on HTTP
+	if strings.HasPrefix(origin, "https://") {
+		for _, suffix := range allowedDomainSuffixes {
+			if strings.HasSuffix(origin, suffix) {
+				return true
+			}
 		}
 	}
 	
@@ -443,14 +481,13 @@ func corsMiddleware() gin.HandlerFunc {
 		// For same-origin requests (no Origin header), we don't need to set CORS headers
 		// since the browser will allow the request by default.
 		if origin != "" && isAllowedOrigin(origin) {
-			// Cross-origin request from allowed origin - set CORS headers
+			// Cross-origin request from allowed origin - set all CORS headers
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Requested-With")
+			c.Header("Access-Control-Max-Age", "86400")
 		}
-		
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Requested-With")
-		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
