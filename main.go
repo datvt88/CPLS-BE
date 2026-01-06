@@ -49,6 +49,11 @@ func main() {
 	// Create Gin router
 	router := gin.New()
 
+	// Configure trusted proxies for Cloud Run
+	// Set to nil to trust all proxies (Cloud Run Load Balancer)
+	// This is required for proper HTTPS detection behind Cloud Run proxy
+	router.SetTrustedProxies(nil)
+
 	// Add middlewares
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
@@ -104,6 +109,14 @@ func main() {
 			return
 		}
 
+		// Initialize databases (PostgreSQL + MongoDB)
+		dbConfig, err := config.InitDatabases()
+		if err != nil {
+			log.Printf("Warning: Failed to initialize all databases: %v", err)
+		} else {
+			log.Println("Database configuration initialized successfully")
+		}
+
 		// Run database migrations
 		log.Println("Running database migrations...")
 		if err := runMigrations(); err != nil {
@@ -117,8 +130,16 @@ func main() {
 			log.Printf("Warning: Could not seed admin user: %v", err)
 		}
 
-		// Initialize global services
+		// Initialize global services (including MongoDB client)
 		initializeGlobalServices()
+
+		// Create MongoDB indexes if MongoDB is available
+		if dbConfig != nil && dbConfig.IsMongoDBAvailable() {
+			crawler := services.NewCrawlerService(dbConfig.MongoDB, dbConfig.MongoDBName)
+			if err := crawler.CreateIndexes(); err != nil {
+				log.Printf("Warning: Failed to create MongoDB indexes: %v", err)
+			}
+		}
 
 		// Mark database as ready
 		dbInitMutex.Lock()
@@ -441,7 +462,12 @@ func gracefulShutdown(server *http.Server, jobScheduler *scheduler.Scheduler) {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
 
-	// Close database connection
+	// Close MongoDB connection if initialized
+	if config.GlobalDBConfig != nil {
+		config.GlobalDBConfig.CloseConnections()
+	}
+
+	// Close PostgreSQL connection
 	if config.DB != nil {
 		sqlDB, err := config.DB.DB()
 		if err == nil {

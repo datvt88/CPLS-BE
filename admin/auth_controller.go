@@ -31,6 +31,36 @@ func isSecureMode() bool {
 	return os.Getenv("ENVIRONMENT") == "production"
 }
 
+// setAdminSessionCookie sets the admin session cookie with proper Cloud Run configuration
+func setAdminSessionCookie(c *gin.Context, token string, maxAge int) {
+	// For Cloud Run: Use Path="/", Secure=true in production, SameSite=None for cross-origin
+	secure := isSecureMode()
+	sameSite := http.SameSiteDefaultMode
+	
+	if secure {
+		// For HTTPS (Cloud Run production), use SameSite=None to allow cross-origin
+		sameSite = http.SameSiteNoneMode
+	} else {
+		// For local development (HTTP), use SameSite=Lax
+		sameSite = http.SameSiteLaxMode
+	}
+	
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "admin_session",
+		Value:    token,
+		Path:     "/", // Changed from "/admin" to "/" for broader access
+		MaxAge:   maxAge,
+		Secure:   secure,
+		HttpOnly: true,
+		SameSite: sameSite,
+	})
+}
+
+// clearAdminSessionCookie removes the admin session cookie
+func clearAdminSessionCookie(c *gin.Context) {
+	setAdminSessionCookie(c, "", -1)
+}
+
 // LoginPage shows the login page
 func (ac *AuthController) LoginPage(c *gin.Context) {
 	// Check if already logged in
@@ -218,8 +248,8 @@ func (ac *AuthController) createSessionAndRedirect(c *gin.Context, admin *models
 	now := time.Now()
 	ac.db.Model(admin).Update("last_login_at", now)
 
-	// Set session cookie (secure in production)
-	c.SetCookie("admin_session", token, 86400, "/admin", "", isSecureMode(), true)
+	// Set session cookie (secure in production) - 24 hours
+	setAdminSessionCookie(c, token, 86400)
 
 	log.Printf("Admin user %s logged in successfully", admin.Username)
 	c.Redirect(http.StatusFound, "/admin/dashboard")
@@ -263,8 +293,8 @@ func (ac *AuthController) Logout(c *gin.Context) {
 		ac.db.Where("token = ?", token).Delete(&models.AdminSession{})
 	}
 
-	// Clear cookie (secure in production)
-	c.SetCookie("admin_session", "", -1, "/admin", "", isSecureMode(), true)
+	// Clear session cookie
+	clearAdminSessionCookie(c)
 	c.Redirect(http.StatusFound, "/admin/login")
 }
 

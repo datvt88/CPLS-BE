@@ -1,9 +1,12 @@
 package controllers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
+	"go_backend_project/config"
+	"go_backend_project/services"
 	"go_backend_project/services/screener"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -11,16 +14,54 @@ import (
 
 // ScreenerController handles stock screening requests
 type ScreenerController struct {
-	db       *gorm.DB
-	screener *screener.StockScreener
+	db            *gorm.DB
+	screener      *screener.StockScreener
+	mongoScreener *services.ScreenerService
 }
 
 // NewScreenerController creates a new screener controller
 func NewScreenerController(db *gorm.DB) *ScreenerController {
-	return &ScreenerController{
+	ctrl := &ScreenerController{
 		db:       db,
 		screener: screener.NewStockScreener(db),
 	}
+
+	// Try to initialize MongoDB screener if available
+	if config.GlobalDBConfig != nil && config.GlobalDBConfig.IsMongoDBAvailable() {
+		mongoDB := config.GlobalDBConfig.GetMongoDatabase()
+		ctrl.mongoScreener = services.NewScreenerService(mongoDB)
+		log.Println("ScreenerController: MongoDB screener enabled")
+	} else {
+		log.Println("ScreenerController: MongoDB screener not available, using PostgreSQL fallback")
+	}
+
+	return ctrl
+}
+
+// ScreenMongo applies filters and returns matching stocks from MongoDB
+// POST /api/v1/screener/screen-mongo
+func (sc *ScreenerController) ScreenMongo(c *gin.Context) {
+	if sc.mongoScreener == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MongoDB screener not available",
+		})
+		return
+	}
+
+	var filter services.FilterParams
+
+	if err := c.ShouldBindJSON(&filter); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	results, err := sc.mongoScreener.GetScreener(filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, results)
 }
 
 // Screen applies filters and returns matching stocks
@@ -284,4 +325,122 @@ func (sc *ScreenerController) GetVolumeSpike(c *gin.Context) {
 		"data":  results,
 		"total": total,
 	})
+}
+
+// ================ MongoDB-Based Screener Endpoints ================
+
+// GetOversoldMongo returns oversold stocks from MongoDB (RSI < 30)
+// GET /api/v1/screener/mongo/oversold
+func (sc *ScreenerController) GetOversoldMongo(c *gin.Context) {
+	if sc.mongoScreener == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MongoDB screener not available",
+		})
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	results, err := sc.mongoScreener.GetOversoldStocks(limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, results)
+}
+
+// GetOverboughtMongo returns overbought stocks from MongoDB (RSI > 70)
+// GET /api/v1/screener/mongo/overbought
+func (sc *ScreenerController) GetOverboughtMongo(c *gin.Context) {
+	if sc.mongoScreener == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MongoDB screener not available",
+		})
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	results, err := sc.mongoScreener.GetOverboughtStocks(limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, results)
+}
+
+// GetBullishMongo returns bullish stocks from MongoDB
+// GET /api/v1/screener/mongo/bullish
+func (sc *ScreenerController) GetBullishMongo(c *gin.Context) {
+	if sc.mongoScreener == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MongoDB screener not available",
+		})
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	results, err := sc.mongoScreener.GetBullishStocks(limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, results)
+}
+
+// GetStockIndicatorsMongo returns technical indicators for a specific stock from MongoDB
+// GET /api/v1/screener/mongo/stock/:code
+func (sc *ScreenerController) GetStockIndicatorsMongo(c *gin.Context) {
+	if sc.mongoScreener == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MongoDB screener not available",
+		})
+		return
+	}
+
+	code := c.Param("code")
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Stock code is required"})
+		return
+	}
+
+	result, err := sc.mongoScreener.GetStockIndicators(code)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// GetMarketStatistics returns overall market statistics from MongoDB
+// GET /api/v1/screener/mongo/statistics
+func (sc *ScreenerController) GetMarketStatistics(c *gin.Context) {
+	if sc.mongoScreener == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MongoDB screener not available",
+		})
+		return
+	}
+
+	stats, err := sc.mongoScreener.GetStatistics()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
 }
