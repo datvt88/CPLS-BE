@@ -61,6 +61,27 @@ func clearAdminSessionCookie(c *gin.Context) {
 	setAdminSessionCookie(c, "", -1)
 }
 
+// checkDatabaseConnection checks if the database connection is healthy
+// Returns an empty string if connection is healthy, or an error message if not
+func (ac *AuthController) checkDatabaseConnection() string {
+	if ac.db == nil {
+		return "Cơ sở dữ liệu chưa được khởi tạo. Vui lòng liên hệ quản trị viên."
+	}
+
+	sqlDB, err := ac.db.DB()
+	if err != nil {
+		log.Printf("Database connection check failed: unable to get database instance: %v", err)
+		return "Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên."
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		log.Printf("Database connection check failed: ping failed: %v", err)
+		return "Mất kết nối đến cơ sở dữ liệu. Vui lòng thử lại sau hoặc liên hệ quản trị viên."
+	}
+
+	return ""
+}
+
 // LoginPage shows the login page
 func (ac *AuthController) LoginPage(c *gin.Context) {
 	// Check if already logged in
@@ -70,19 +91,7 @@ func (ac *AuthController) LoginPage(c *gin.Context) {
 	}
 
 	// Check database connection status
-	connectionError := ""
-	if ac.db != nil {
-		sqlDB, err := ac.db.DB()
-		if err != nil {
-			log.Printf("Database connection check failed: %v", err)
-			connectionError = "Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên."
-		} else if err := sqlDB.Ping(); err != nil {
-			log.Printf("Database ping failed: %v", err)
-			connectionError = "Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên."
-		}
-	} else {
-		connectionError = "Cơ sở dữ liệu chưa được khởi tạo. Vui lòng liên hệ quản trị viên."
-	}
+	connectionError := ac.checkDatabaseConnection()
 
 	c.HTML(http.StatusOK, "login.html", gin.H{
 		"error":            c.Query("error"),
@@ -114,29 +123,10 @@ func (ac *AuthController) RootRedirect(c *gin.Context) {
 // Supports both local admin login (username/password) and Supabase Auth login (email/password)
 func (ac *AuthController) Login(c *gin.Context) {
 	// Check database connection before attempting login
-	if ac.db != nil {
-		sqlDB, err := ac.db.DB()
-		if err != nil {
-			log.Printf("Database connection check failed during login: %v", err)
-			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-				"error":            "Không thể đăng nhập do lỗi kết nối cơ sở dữ liệu.",
-				"connectionError":  "Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên.",
-				"supabaseEnabled":  isSupabaseEnabled(),
-			})
-			return
-		} else if err := sqlDB.Ping(); err != nil {
-			log.Printf("Database ping failed during login: %v", err)
-			c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
-				"error":            "Không thể đăng nhập do lỗi kết nối cơ sở dữ liệu.",
-				"connectionError":  "Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra cấu hình hoặc liên hệ quản trị viên.",
-				"supabaseEnabled":  isSupabaseEnabled(),
-			})
-			return
-		}
-	} else {
+	if connectionError := ac.checkDatabaseConnection(); connectionError != "" {
 		c.HTML(http.StatusServiceUnavailable, "login.html", gin.H{
 			"error":            "Không thể đăng nhập do lỗi kết nối cơ sở dữ liệu.",
-			"connectionError":  "Cơ sở dữ liệu chưa được khởi tạo. Vui lòng liên hệ quản trị viên.",
+			"connectionError":  connectionError,
 			"supabaseEnabled":  isSupabaseEnabled(),
 		})
 		return
