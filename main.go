@@ -398,14 +398,19 @@ func setupHealthEndpoints(router *gin.Engine) {
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
-		if origin == "" {
-			origin = "*"
+		
+		// IMPORTANT: When Access-Control-Allow-Credentials is true,
+		// Access-Control-Allow-Origin CANNOT be "*" - it must be a specific origin.
+		// For same-origin requests (no Origin header), we don't need to set CORS headers
+		// since the browser will allow the request by default.
+		if origin != "" {
+			// Cross-origin request - set CORS headers with specific origin
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Access-Control-Allow-Credentials", "true")
 		}
-
-		c.Header("Access-Control-Allow-Origin", origin)
+		
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Requested-With")
-		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == "OPTIONS" {
