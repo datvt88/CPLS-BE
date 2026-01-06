@@ -10,9 +10,8 @@ DO $$
 DECLARE
     admin_count INTEGER;
     default_username VARCHAR(100) := COALESCE(current_setting('app.admin_default_username', true), 'datvt8x');
-    -- REPLACE THIS HASH WITH YOUR ACTUAL BCRYPT HASH BEFORE RUNNING
-    -- This is a bcrypt hash for password '@abcd4321' (default) - CHANGE IN PRODUCTION!
-    default_password_hash VARCHAR(255) := '$2a$10$8QXQ7J8ZY0X8X8X8X8X8XeJX8X8X8X8X8X8X8X8X8X8X8X8X8X8X8';
+    -- Bcrypt hash for password '@abcd4321' - CHANGE IN PRODUCTION!
+    default_password_hash VARCHAR(255) := '$2a$10$soFYLqqzyNrRdQW39U9u2u/ZRG0c8f4xYrtqeOpu/BCtoSjK5Ef6q';
 BEGIN
     -- Count existing admin users
     SELECT COUNT(*) INTO admin_count FROM admin_users;
@@ -20,10 +19,10 @@ BEGIN
     -- Only seed if no admin users exist
     IF admin_count = 0 THEN
         RAISE NOTICE '=============================================================';
-        RAISE NOTICE 'WARNING: Using placeholder password hash!';
-        RAISE NOTICE 'Please generate a proper bcrypt hash using:';
+        RAISE NOTICE 'Creating default admin user with default credentials.';
+        RAISE NOTICE 'IMPORTANT: Change the password after first login!';
+        RAISE NOTICE 'To generate a new password hash, run:';
         RAISE NOTICE '  go run scripts/generate_password_hash.go "YourPassword"';
-        RAISE NOTICE 'Then update this script with the generated hash';
         RAISE NOTICE '=============================================================';
         
         -- Insert default admin user
