@@ -1,116 +1,184 @@
 {{ define "content" }}
+<!-- Statistics Cards -->
 <div class="row">
-    <div class="col-md-2">
-        <div class="card stat-card">
+    <div class="col-lg-2 col-6">
+        <div class="small-box bg-info">
+            <div class="inner">
+                <h3>{{ .stockCount }}</h3>
+                <p>Total Stocks</p>
+            </div>
+            <div class="icon">
+                <i class="fas fa-chart-line"></i>
+            </div>
+            <a href="/admin/stocks" class="small-box-footer">More info <i class="fas fa-arrow-circle-right"></i></a>
+        </div>
+    </div>
+    <div class="col-lg-2 col-6">
+        <div class="small-box bg-primary">
+            <div class="inner">
+                <h3>{{ .userCount }}</h3>
+                <p>Users</p>
+            </div>
+            <div class="icon">
+                <i class="fas fa-users"></i>
+            </div>
+            <a href="/admin/users" class="small-box-footer">More info <i class="fas fa-arrow-circle-right"></i></a>
+        </div>
+    </div>
+    <div class="col-lg-2 col-6">
+        <div class="small-box bg-purple" style="background-color: #9b59b6 !important;">
+            <div class="inner">
+                <h3>{{ .strategyCount }}</h3>
+                <p>Strategies</p>
+            </div>
+            <div class="icon">
+                <i class="fas fa-lightbulb"></i>
+            </div>
+            <a href="/admin/strategies" class="small-box-footer">More info <i class="fas fa-arrow-circle-right"></i></a>
+        </div>
+    </div>
+    <div class="col-lg-2 col-6">
+        <div class="small-box bg-warning">
+            <div class="inner">
+                <h3>{{ .backtestCount }}</h3>
+                <p>Backtests</p>
+            </div>
+            <div class="icon">
+                <i class="fas fa-history"></i>
+            </div>
+            <a href="/admin/backtests" class="small-box-footer">More info <i class="fas fa-arrow-circle-right"></i></a>
+        </div>
+    </div>
+    <div class="col-lg-2 col-6">
+        <div class="small-box bg-success">
+            <div class="inner">
+                <h3>{{ .tradeCount }}</h3>
+                <p>Trades</p>
+            </div>
+            <div class="icon">
+                <i class="fas fa-exchange-alt"></i>
+            </div>
+            <a href="/admin/trading-bot" class="small-box-footer">More info <i class="fas fa-arrow-circle-right"></i></a>
+        </div>
+    </div>
+</div>
+
+<!-- Stock Charts Row -->
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header border-0">
+                <div class="d-flex justify-content-between">
+                    <h3 class="card-title"><i class="fas fa-chart-area"></i> Stock Market Overview</h3>
+                    <div class="card-tools">
+                        <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                            <i class="fas fa-minus"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
             <div class="card-body">
-                <h6 class="card-subtitle mb-2 text-muted">Total Stocks</h6>
-                <h2 class="card-title">{{ .stockCount }}</h2>
-                <p class="card-text"><i class="bi bi-graph-up"></i> HOSE, HNX, UPCOM</p>
+                <div class="stock-chart-container">
+                    <canvas id="stockPriceChart" style="min-height: 300px;"></canvas>
+                </div>
+                <p class="text-muted text-center mt-2">
+                    <i class="fas fa-info-circle"></i> Stock price chart placeholder - Connect to live data for real-time updates
+                </p>
             </div>
         </div>
     </div>
-    <div class="col-md-2">
-        <div class="card stat-card" style="border-left-color: #3498db;">
-            <div class="card-body">
-                <h6 class="card-subtitle mb-2 text-muted">Users</h6>
-                <h2 class="card-title">{{ .userCount }}</h2>
-                <p class="card-text"><i class="bi bi-people"></i> Registered</p>
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header border-0">
+                <h3 class="card-title"><i class="fas fa-chart-pie"></i> Market Distribution</h3>
+                <div class="card-tools">
+                    <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                </div>
             </div>
-        </div>
-    </div>
-    <div class="col-md-2">
-        <div class="card stat-card" style="border-left-color: #9b59b6;">
             <div class="card-body">
-                <h6 class="card-subtitle mb-2 text-muted">Strategies</h6>
-                <h2 class="card-title">{{ .strategyCount }}</h2>
-                <p class="card-text"><i class="bi bi-lightbulb"></i> Trading</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-2">
-        <div class="card stat-card" style="border-left-color: #e67e22;">
-            <div class="card-body">
-                <h6 class="card-subtitle mb-2 text-muted">Backtests</h6>
-                <h2 class="card-title">{{ .backtestCount }}</h2>
-                <p class="card-text"><i class="bi bi-clock-history"></i> Completed</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-2">
-        <div class="card stat-card" style="border-left-color: #27ae60;">
-            <div class="card-body">
-                <h6 class="card-subtitle mb-2 text-muted">Total Trades</h6>
-                <h2 class="card-title">{{ .tradeCount }}</h2>
-                <p class="card-text"><i class="bi bi-cash-coin"></i> Executed</p>
+                <div class="stock-chart-container">
+                    <canvas id="marketDistributionChart" style="min-height: 250px;"></canvas>
+                </div>
+                <p class="text-muted text-center mt-2">
+                    <i class="fas fa-info-circle"></i> HOSE, HNX, UPCOM distribution
+                </p>
             </div>
         </div>
     </div>
 </div>
 
-<div class="row mt-4">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h5><i class="bi bi-cloud-download"></i> Quick Actions</h5>
+<!-- Quick Actions and Trading Bot Status -->
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card card-primary">
+            <div class="card-header">
+                <h3 class="card-title"><i class="fas fa-bolt"></i> Quick Actions</h3>
             </div>
             <div class="card-body">
-                <button class="btn btn-primary btn-block mb-2" onclick="initializeData()">
-                    <i class="bi bi-database-add"></i> Initialize Stock Data
+                <button class="btn btn-primary btn-block mb-3" onclick="initializeData()">
+                    <i class="fas fa-database"></i> Initialize Stock Data
                 </button>
                 <p class="text-muted small">Fetch sample stock list and historical data for top stocks</p>
 
-                <button class="btn btn-success btn-block mb-2" onclick="location.href='/admin/strategies'">
-                    <i class="bi bi-plus-circle"></i> Create Strategy
+                <button class="btn btn-success btn-block mb-3" onclick="location.href='/admin/strategies'">
+                    <i class="fas fa-plus-circle"></i> Create Strategy
                 </button>
                 <p class="text-muted small">Create a new trading strategy</p>
 
                 <button class="btn btn-warning btn-block" onclick="location.href='/admin/backtests'">
-                    <i class="bi bi-play-circle"></i> Run Backtest
+                    <i class="fas fa-play-circle"></i> Run Backtest
                 </button>
                 <p class="text-muted small">Test your strategy with historical data</p>
             </div>
         </div>
     </div>
 
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header bg-success text-white">
-                <h5><i class="bi bi-robot"></i> Trading Bot Status</h5>
+    <div class="col-lg-6">
+        <div class="card card-success">
+            <div class="card-header">
+                <h3 class="card-title"><i class="fas fa-robot"></i> Trading Bot Status</h3>
             </div>
             <div class="card-body">
-                <h3>
+                <div class="text-center mb-4">
                     {{ if .botRunning }}
-                        <span class="badge bg-success">Running</span>
+                        <span class="badge badge-success" style="font-size: 1.5rem; padding: 15px 30px;">
+                            <i class="fas fa-check-circle"></i> Running
+                        </span>
                     {{ else }}
-                        <span class="badge bg-secondary">Stopped</span>
+                        <span class="badge badge-secondary" style="font-size: 1.5rem; padding: 15px 30px;">
+                            <i class="fas fa-stop-circle"></i> Stopped
+                        </span>
                     {{ end }}
-                </h3>
-                <p class="mt-3">The trading bot monitors market conditions and executes trades based on active strategies.</p>
+                </div>
+                <p class="text-center">The trading bot monitors market conditions and executes trades based on active strategies.</p>
 
-                {{ if .botRunning }}
-                    <button class="btn btn-bot-stop btn-block" onclick="stopBot()">
-                        <i class="bi bi-stop-circle"></i> Stop Bot
-                    </button>
-                {{ else }}
-                    <button class="btn btn-bot-start btn-block" onclick="startBot()">
-                        <i class="bi bi-play-circle"></i> Start Bot
-                    </button>
-                {{ end }}
-
-                <hr>
-                <a href="/admin/trading-bot" class="btn btn-outline-primary btn-block">
-                    <i class="bi bi-eye"></i> View Bot Details
-                </a>
+                <div class="btn-group btn-group-justified d-flex mt-3">
+                    {{ if .botRunning }}
+                        <button class="btn btn-danger btn-lg flex-fill" onclick="stopBot()">
+                            <i class="fas fa-stop-circle"></i> Stop Bot
+                        </button>
+                    {{ else }}
+                        <button class="btn btn-success btn-lg flex-fill" onclick="startBot()">
+                            <i class="fas fa-play-circle"></i> Start Bot
+                        </button>
+                    {{ end }}
+                    <a href="/admin/trading-bot" class="btn btn-outline-primary btn-lg flex-fill">
+                        <i class="fas fa-eye"></i> View Details
+                    </a>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-<div class="row mt-4">
+<!-- System Information -->
+<div class="row">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5><i class="bi bi-info-circle"></i> System Information</h5>
+                <h3 class="card-title"><i class="fas fa-info-circle"></i> System Information</h3>
             </div>
             <div class="card-body">
                 <dl class="row">
@@ -137,6 +205,100 @@
 
 {{ define "scripts" }}
 <script>
+// Initialize Stock Price Chart (placeholder data)
+function initStockPriceChart() {
+    const ctx = document.getElementById('stockPriceChart');
+    if (!ctx) return;
+    
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+            datasets: [{
+                label: 'VN-Index',
+                data: [1180, 1220, 1195, 1240, 1280, 1265, 1300, 1320, 1285, 1310, 1340, 1360],
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+            }, {
+                label: 'HNX-Index',
+                data: [230, 245, 238, 255, 268, 260, 275, 285, 270, 280, 295, 305],
+                borderColor: '#27ae60',
+                backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                title: {
+                    display: true,
+                    text: 'Vietnamese Stock Market Indices (Sample Data)'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: 'Index Value'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Initialize Market Distribution Chart
+function initMarketDistributionChart() {
+    const ctx = document.getElementById('marketDistributionChart');
+    if (!ctx) return;
+    
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['HOSE', 'HNX', 'UPCOM'],
+            datasets: [{
+                data: [400, 250, 150],
+                backgroundColor: [
+                    '#3498db',
+                    '#27ae60',
+                    '#e67e22'
+                ],
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                },
+                title: {
+                    display: true,
+                    text: 'Stocks by Exchange'
+                }
+            }
+        }
+    });
+}
+
+// Initialize charts on page load
+$(document).ready(function() {
+    initStockPriceChart();
+    initMarketDistributionChart();
+});
+
 function initializeData() {
     if (!confirm('Initialize stock data? This will fetch sample stocks and historical data.')) return;
 
