@@ -4,60 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CPLS Admin - Login</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <!-- Google Font: Source Sans Pro -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- AdminLTE CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
     <style>
         body {
-            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
         }
-        .login-card {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            padding: 40px;
-            width: 100%;
-            max-width: 400px;
+        .login-page {
+            background: transparent;
         }
-        .login-header {
-            text-align: center;
-            margin-bottom: 30px;
+        .login-box {
+            width: 400px;
         }
-        .login-header h2 {
-            color: #2c3e50;
-            font-weight: bold;
+        .login-card-body {
+            border-radius: 10px;
         }
-        .login-header p {
-            color: #7f8c8d;
-        }
-        .form-control {
-            border-radius: 8px;
-            padding: 12px 15px;
-        }
-        .btn-login {
-            background: #3498db;
-            border: none;
-            border-radius: 8px;
-            padding: 12px;
-            font-weight: bold;
-            width: 100%;
-        }
-        .btn-login:hover {
-            background: #2980b9;
-        }
-        .btn-login:disabled {
-            background: #95a5a6;
-            cursor: not-allowed;
-        }
-        .input-group-text {
-            background: #f8f9fa;
-            border-radius: 8px 0 0 8px;
-        }
-        .form-control {
-            border-radius: 0 8px 8px 0;
+        .login-logo a {
+            color: #fff;
         }
         .connection-error-box {
             background-color: #fee2e2;
@@ -84,64 +51,75 @@
             text-align: center;
             font-size: 0.9rem;
         }
-        .form-disabled input {
-            background-color: #f0f0f0;
-            cursor: not-allowed;
-        }
     </style>
 </head>
-<body>
-    <div class="login-card">
-        <div class="login-header">
-            <h2><i class="bi bi-shield-lock"></i> CPLS Admin</h2>
-            <p>Vietnamese Stock Trading System</p>
+<body class="hold-transition login-page">
+    <div class="login-box">
+        <div class="login-logo">
+            <a href="/"><i class="fas fa-chart-line"></i> <b>CPLS</b> Admin</a>
         </div>
+        <div class="card">
+            <div class="card-body login-card-body">
+                <p class="login-box-msg">
+                    <i class="fas fa-shield-alt text-primary"></i> Vietnamese Stock Trading System
+                </p>
 
-        {{ if .connectionError }}
-        <div class="connection-error-box">
-            <i class="bi bi-database-x error-icon"></i>
-            <div class="error-title">Lỗi Kết Nối Cơ Sở Dữ Liệu</div>
-            <div class="error-message">{{ .connectionError }}</div>
-        </div>
-        {{ end }}
-
-        {{ if .error }}
-        <div class="alert alert-danger" role="alert">
-            <i class="bi bi-exclamation-circle"></i> {{ .error }}
-        </div>
-        {{ end }}
-
-        <form method="POST" action="/admin/login" id="login-form" {{ if .connectionError }}class="form-disabled"{{ end }}>
-            <div class="mb-3">
-                <label class="form-label">Username</label>
-                <div class="input-group">
-                    <span class="input-group-text"><i class="bi bi-person"></i></span>
-                    <input type="text" class="form-control" name="username" placeholder="Enter username" required {{ if not .connectionError }}autofocus{{ end }} {{ if .connectionError }}disabled{{ end }}>
-                </div>
-            </div>
-
-            <div class="mb-4">
-                <label class="form-label">Password</label>
-                <div class="input-group">
-                    <span class="input-group-text"><i class="bi bi-key"></i></span>
-                    <input type="password" class="form-control" name="password" placeholder="Enter password" required {{ if .connectionError }}disabled{{ end }}>
-                </div>
-            </div>
-
-            <button type="submit" class="btn btn-primary btn-login" {{ if .connectionError }}disabled{{ end }}>
                 {{ if .connectionError }}
-                <i class="bi bi-x-circle"></i> Không thể đăng nhập
-                {{ else }}
-                <i class="bi bi-box-arrow-in-right"></i> Sign In
+                <div class="connection-error-box">
+                    <i class="fas fa-database error-icon"></i>
+                    <div class="error-title">Database Connection Error</div>
+                    <div class="error-message">{{ .connectionError }}</div>
+                </div>
                 {{ end }}
-            </button>
-        </form>
 
-        <div class="text-center mt-4">
-            <a href="/" class="text-muted"><i class="bi bi-arrow-left"></i> Back to API</a>
+                {{ if .error }}
+                <div class="alert alert-danger" role="alert">
+                    <i class="fas fa-exclamation-circle"></i> {{ .error }}
+                </div>
+                {{ end }}
+
+                <form method="POST" action="/admin/login" {{ if .connectionError }}class="form-disabled"{{ end }}>
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control" name="username" placeholder="Username" required {{ if not .connectionError }}autofocus{{ end }} {{ if .connectionError }}disabled{{ end }}>
+                        <div class="input-group-append">
+                            <div class="input-group-text">
+                                <span class="fas fa-user"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="input-group mb-3">
+                        <input type="password" class="form-control" name="password" placeholder="Password" required {{ if .connectionError }}disabled{{ end }}>
+                        <div class="input-group-append">
+                            <div class="input-group-text">
+                                <span class="fas fa-lock"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary btn-block" {{ if .connectionError }}disabled{{ end }}>
+                                {{ if .connectionError }}
+                                <i class="fas fa-times-circle"></i> Cannot Sign In
+                                {{ else }}
+                                <i class="fas fa-sign-in-alt"></i> Sign In
+                                {{ end }}
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <p class="mb-0 mt-3 text-center">
+                    <a href="/" class="text-muted"><i class="fas fa-arrow-left"></i> Back to API</a>
+                </p>
+            </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Bootstrap 4 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- AdminLTE App -->
+    <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
 </body>
 </html>
