@@ -263,7 +263,7 @@ func loadTemplates(router *gin.Engine) error {
 	}
 
 	// Create master template with custom functions
-	masterTmpl := template.New("master").Funcs(templateFuncs())
+	masterTmpl := template.New("").Funcs(templateFuncs())
 
 	// Walk through embedded files and parse them
 	var templateFiles []string
@@ -306,6 +306,9 @@ func loadTemplates(router *gin.Engine) error {
 		// each page gets its own complete template with layout embedded.
 		// We rename the "content" and "scripts" definitions to be unique per page
 		// to avoid conflicts between templates in the same namespace.
+		// Note: The patterns being replaced are exact Go template syntax patterns
+		// (e.g., `{{ define "content" }}`), which are highly specific and unlikely
+		// to appear as regular text in templates.
 		if strings.Contains(string(content), `{{ define "content" }}`) {
 			// Create unique template names for content and scripts blocks
 			// Replace generic "content" and "scripts" with page-specific names

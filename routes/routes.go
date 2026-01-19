@@ -3,6 +3,7 @@ package routes
 import (
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"sync"
 
@@ -14,6 +15,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+)
+
+// Error messages for authentication failures
+const (
+	errDBNotConnected = "Database not connected. Please wait for system initialization."
 )
 
 // AuthControllerSetter is called to set the global auth controller in main.go
@@ -227,8 +233,9 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 		// This happens when database is not ready yet
 		log.Printf("Warning: Setting up admin protected routes without authentication middleware")
 		authMiddleware = func(c *gin.Context) {
-			// Redirect to login page with a message
-			c.Redirect(http.StatusFound, "/admin/login?error=Database%20not%20connected.%20Please%20wait%20for%20system%20initialization.")
+			// Redirect to login page with a properly URL-encoded message
+			redirectURL := "/admin/login?error=" + url.QueryEscape(errDBNotConnected)
+			c.Redirect(http.StatusFound, redirectURL)
 			c.Abort()
 		}
 	}
