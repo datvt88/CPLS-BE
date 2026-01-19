@@ -169,31 +169,28 @@ func SetupAdminRoutes(router *gin.Engine, db *gorm.DB) {
 	}
 }
 
-// SetupAdminProtectedRoutesEarly sets up protected admin routes early if Supabase auth is available
-// This is called before database initialization. If Supabase is configured and working,
-// protected routes will be available immediately. Otherwise, they'll be set up after DB init.
+// SetupAdminProtectedRoutesEarly sets up protected admin routes early
+// This is called before database initialization. Routes are always registered
+// to prevent 404 errors. If authentication is not available, routes will show
+// appropriate error messages instead of 404.
 func SetupAdminProtectedRoutesEarly(router *gin.Engine) {
 	// Check if Supabase is configured
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
 	
-	// Only attempt early setup if Supabase is configured
-	if supabaseURL == "" || supabaseServiceKey == "" {
-		log.Printf("Deferring admin protected routes setup until database is ready (Supabase not configured)")
-		return
-	}
-	
 	// Try to initialize auth controllers
 	// Note: initializeAuthControllers uses caching, so calling it multiple times is safe
 	controllers := initializeAuthControllers(nil)
 	
-	// Only setup protected routes early if Supabase auth is actually available
-	// This allows dashboard access after Supabase login without waiting for database
-	if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
+	// If Supabase auth is available, setup protected routes with proper auth
+	if supabaseURL != "" && supabaseServiceKey != "" && controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
 		log.Printf("Setting up admin protected routes early (Supabase auth available)")
 		SetupAdminProtectedRoutes(router, nil, nil)
 	} else {
-		log.Printf("Deferring admin protected routes setup until database is ready (Supabase auth test failed)")
+		// Always register protected routes to avoid 404 errors
+		// Routes will show appropriate error messages when auth/DB is not available
+		log.Printf("Setting up admin protected routes in limited mode (waiting for database)")
+		SetupAdminProtectedRoutes(router, nil, nil)
 	}
 }
 
@@ -226,22 +223,12 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 	} else if controllers.authController != nil {
 		authMiddleware = controllers.authController.AuthMiddleware()
 	} else {
-		// Should not happen if SetupAdminProtectedRoutesEarly works correctly
-		// Return 503 Service Unavailable to avoid redirect loops
+		// No auth controller available - redirect to login page with error message
+		// This happens when database is not ready yet
 		log.Printf("Warning: Setting up admin protected routes without authentication middleware")
 		authMiddleware = func(c *gin.Context) {
-			c.HTML(http.StatusServiceUnavailable, "dashboard.html", gin.H{
-				"stockCount":    0,
-				"strategyCount": 0,
-				"backtestCount": 0,
-				"tradeCount":    0,
-				"userCount":     0,
-				"botRunning":    false,
-				"adminUser":     nil,
-				"page":          "dashboard",
-				"title":         "Dashboard",
-				"dbError":       "Service temporarily unavailable. Authentication system is initializing.",
-			})
+			// Redirect to login page with a message
+			c.Redirect(http.StatusFound, "/admin/login?error=Database%20not%20connected.%20Please%20wait%20for%20system%20initialization.")
 			c.Abort()
 		}
 	}
