@@ -48,6 +48,61 @@
 </div>
 
 <div class="row mt-4">
+    <!-- Widget 1: VNDirect Stock List Crawler -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5><i class="bi bi-cloud-arrow-down"></i> VNDirect Stock List Crawler</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Fetch stock list from VNDirect API (HOSE, HNX, UPCOM) and save to MongoDB.</p>
+                <p class="small"><code>API: api-finfo.vndirect.com.vn/v4/stocks</code></p>
+                
+                <div id="stockCrawlStatus" class="alert alert-secondary mb-3" style="display:none;">
+                    <i class="bi bi-info-circle"></i> <span id="stockCrawlMessage"></span>
+                </div>
+                
+                <button class="btn btn-info btn-block" onclick="crawlStockList()" id="btnCrawlStocks">
+                    <i class="bi bi-download"></i> Crawl Stock List
+                </button>
+                <p class="text-muted small mt-2">This will fetch ~1500+ stocks from VNDirect and store in MongoDB</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Widget 2: VNDirect Price Data Crawler -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-warning text-dark">
+                <h5><i class="bi bi-graph-up-arrow"></i> VNDirect Price Data Crawler (270 Sessions)</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Fetch 270 price sessions per stock and calculate technical indicators.</p>
+                <p class="small"><code>API: api-finfo.vndirect.com.vn/v4/stock_prices?size=270</code></p>
+                
+                <div id="priceCrawlStatus" class="alert alert-secondary mb-3" style="display:none;">
+                    <i class="bi bi-info-circle"></i> <span id="priceCrawlMessage"></span>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Stock Codes (comma separated):</label>
+                    <input type="text" class="form-control" id="stockCodes" placeholder="VNM,VIC,HPG,TCB,VCB" value="VNM,VIC,HPG,TCB,VCB,BID,CTG,MBB,ACB,FPT">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Worker Pool Size:</label>
+                    <input type="number" class="form-control" id="workerCount" value="5" min="1" max="10">
+                </div>
+                
+                <button class="btn btn-warning btn-block" onclick="crawlPriceData()" id="btnCrawlPrices">
+                    <i class="bi bi-currency-dollar"></i> Crawl Price Data
+                </button>
+                <p class="text-muted small mt-2">This runs in background. Check logs for progress.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
     <div class="col-md-6">
         <div class="card">
             <div class="card-header bg-primary text-white">
@@ -121,10 +176,13 @@
                     <dd class="col-sm-9"><code>/api/v1/</code></dd>
 
                     <dt class="col-sm-3">Database</dt>
-                    <dd class="col-sm-9">PostgreSQL / Supabase</dd>
+                    <dd class="col-sm-9">PostgreSQL / Supabase + MongoDB Atlas</dd>
 
                     <dt class="col-sm-3">Supported Exchanges</dt>
                     <dd class="col-sm-9">HOSE, HNX, UPCOM</dd>
+
+                    <dt class="col-sm-3">VNDirect API</dt>
+                    <dd class="col-sm-9"><code>api-finfo.vndirect.com.vn/v4/</code></dd>
 
                     <dt class="col-sm-3">Documentation</dt>
                     <dd class="col-sm-9"><a href="/health" target="_blank">API Health</a> | <a href="https://github.com" target="_blank">GitHub</a></dd>
@@ -165,6 +223,70 @@ function stopBot() {
         location.reload();
     }).fail(function(xhr) {
         alert('Error: ' + xhr.responseJSON.error);
+    });
+}
+
+// Widget 1: Crawl Stock List from VNDirect
+function crawlStockList() {
+    var btn = $('#btnCrawlStocks');
+    btn.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Crawling...');
+    
+    $('#stockCrawlStatus').removeClass('alert-success alert-danger').addClass('alert-warning').show();
+    $('#stockCrawlMessage').text('Fetching stock list from VNDirect...');
+    
+    $.ajax({
+        url: '/api/v1/crawler/stocks',
+        type: 'POST',
+        contentType: 'application/json',
+        success: function(data) {
+            $('#stockCrawlStatus').removeClass('alert-warning').addClass('alert-success');
+            $('#stockCrawlMessage').html('<strong>Success!</strong> ' + data.message + ' (' + data.stocks_count + ' stocks)');
+            btn.prop('disabled', false).html('<i class="bi bi-download"></i> Crawl Stock List');
+        },
+        error: function(xhr) {
+            var errorMsg = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+            $('#stockCrawlStatus').removeClass('alert-warning').addClass('alert-danger');
+            $('#stockCrawlMessage').html('<strong>Error:</strong> ' + errorMsg);
+            btn.prop('disabled', false).html('<i class="bi bi-download"></i> Crawl Stock List');
+        }
+    });
+}
+
+// Widget 2: Crawl Price Data (270 sessions)
+function crawlPriceData() {
+    var stockCodes = $('#stockCodes').val().split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+    var workers = parseInt($('#workerCount').val()) || 5;
+    
+    if (stockCodes.length === 0) {
+        alert('Please enter at least one stock code');
+        return;
+    }
+    
+    var btn = $('#btnCrawlPrices');
+    btn.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Starting...');
+    
+    $('#priceCrawlStatus').removeClass('alert-success alert-danger').addClass('alert-warning').show();
+    $('#priceCrawlMessage').text('Starting price data crawler for ' + stockCodes.length + ' stocks...');
+    
+    $.ajax({
+        url: '/api/v1/crawler/prices',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            stock_codes: stockCodes,
+            workers: workers
+        }),
+        success: function(data) {
+            $('#priceCrawlStatus').removeClass('alert-warning').addClass('alert-success');
+            $('#priceCrawlMessage').html('<strong>Started!</strong> ' + data.message + ' (Processing ' + data.stocks_count + ' stocks with ' + data.workers + ' workers)');
+            btn.prop('disabled', false).html('<i class="bi bi-currency-dollar"></i> Crawl Price Data');
+        },
+        error: function(xhr) {
+            var errorMsg = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+            $('#priceCrawlStatus').removeClass('alert-warning').addClass('alert-danger');
+            $('#priceCrawlMessage').html('<strong>Error:</strong> ' + errorMsg);
+            btn.prop('disabled', false).html('<i class="bi bi-currency-dollar"></i> Crawl Price Data');
+        }
     });
 }
 </script>
