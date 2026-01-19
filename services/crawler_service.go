@@ -101,7 +101,7 @@ func (cs *CrawlerService) CrawlStocks() (int, error) {
 		return 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := cs.httpClient.Do(req)
@@ -296,7 +296,7 @@ func (cs *CrawlerService) fetchPriceData(code string, size int) ([]PriceData, er
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := cs.httpClient.Do(req)
@@ -582,16 +582,22 @@ func (cs *CrawlerService) GetAllStockCodes() ([]string, error) {
 	defer cursor.Close(ctx)
 
 	var codes []string
+	var decodeErrors int
 	for cursor.Next(ctx) {
 		var result struct {
 			Code string `bson:"code"`
 		}
 		if err := cursor.Decode(&result); err != nil {
+			decodeErrors++
 			continue
 		}
 		if result.Code != "" {
 			codes = append(codes, result.Code)
 		}
+	}
+	
+	if decodeErrors > 0 {
+		log.Printf("Warning: %d decode errors while reading stock codes", decodeErrors)
 	}
 
 	return codes, nil
