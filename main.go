@@ -288,13 +288,8 @@ func loadTemplates(router *gin.Engine) error {
 			return fmt.Errorf("failed to read template %s: %w", path, err)
 		}
 
-		// Skip layout.html as it's a base template
+		// Skip layout.html as it's embedded in each page template
 		if path == "layout.html" {
-			// Parse layout directly for pages that might render it
-			_, err = masterTmpl.New(path).Parse(string(content))
-			if err != nil {
-				return fmt.Errorf("failed to parse layout template: %w", err)
-			}
 			continue
 		}
 
@@ -308,14 +303,25 @@ func loadTemplates(router *gin.Engine) error {
 		}
 
 		// For content templates that define "content" and "scripts",
-		// combine them with layout. We use string concatenation here because:
-		// 1. Templates are embedded and not available as separate files
-		// 2. Go's template.ParseFiles requires file paths, not embedded content
-		// 3. The layout template uses {{ template "content" . }} which expects
-		//    the "content" template to be defined in the same template tree
+		// each page gets its own complete template with layout embedded.
+		// We rename the "content" and "scripts" definitions to be unique per page
+		// to avoid conflicts between templates in the same namespace.
+		// Note: The patterns being replaced are exact Go template syntax patterns
+		// (e.g., `{{ define "content" }}`), which are highly specific and unlikely
+		// to appear as regular text in templates.
 		if strings.Contains(string(content), `{{ define "content" }}`) {
-			// Create a combined template: layout + page content definitions
-			combinedContent := string(layoutContent) + "\n" + string(content)
+			// Create unique template names for content and scripts blocks
+			// Replace generic "content" and "scripts" with page-specific names
+			baseName := strings.TrimSuffix(path, ".html")
+			pageContent := strings.ReplaceAll(string(content), `{{ define "content" }}`, fmt.Sprintf(`{{ define "%s_content" }}`, baseName))
+			pageContent = strings.ReplaceAll(pageContent, `{{ define "scripts" }}`, fmt.Sprintf(`{{ define "%s_scripts" }}`, baseName))
+			
+			// Modify layout to use page-specific template names
+			pageLayout := strings.ReplaceAll(string(layoutContent), `{{ template "content" . }}`, fmt.Sprintf(`{{ template "%s_content" . }}`, baseName))
+			pageLayout = strings.ReplaceAll(pageLayout, `{{ template "scripts" . }}`, fmt.Sprintf(`{{ template "%s_scripts" . }}`, baseName))
+			
+			// Combine layout with page-specific content
+			combinedContent := pageLayout + "\n" + pageContent
 			_, err = masterTmpl.New(path).Parse(combinedContent)
 			if err != nil {
 				return fmt.Errorf("failed to parse combined template %s: %w", path, err)

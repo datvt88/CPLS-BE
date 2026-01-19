@@ -1,4 +1,14 @@
 {{ define "content" }}
+{{ if .dbError }}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-warning" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <strong>Lưu ý:</strong> {{ .dbError }}
+        </div>
+    </div>
+</div>
+{{ end }}
 <div class="row">
     <div class="col-md-2">
         <div class="card stat-card">
