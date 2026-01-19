@@ -216,6 +216,10 @@
 
 {{ define "scripts" }}
 <script>
+// Configuration constants
+const API_TIMEOUT_MS = 300000;  // 5 minutes timeout for API calls
+const PROGRESS_POLL_INTERVAL_MS = 2000;  // Poll progress every 2 seconds
+
 // Initialize page data on load
 $(document).ready(function() {
     loadPriceStats();
@@ -265,7 +269,7 @@ function syncStockList() {
     $.ajax({
         url: '/admin/api/stocks/sync',
         method: 'POST',
-        timeout: 300000, // 5 minutes timeout
+        timeout: API_TIMEOUT_MS,
         success: function(response) {
             const result = response.result;
             document.getElementById('stockListProgress').style.display = 'none';
@@ -274,11 +278,13 @@ function syncStockList() {
                 <div class="alert alert-success mb-0">
                     <i class="bi bi-check-circle"></i> <strong>Thành công!</strong><br>
                     Đã tải <strong>${result.total_fetched}</strong> cổ phiếu
+                    <button class="btn btn-sm btn-outline-success ms-2" onclick="location.reload()">
+                        <i class="bi bi-arrow-clockwise"></i> Làm mới trang
+                    </button>
                 </div>
             `;
             document.getElementById('syncStockListBtn').disabled = false;
             document.getElementById('stockListCount').textContent = result.total_fetched + ' stocks';
-            setTimeout(() => location.reload(), 2000);
         },
         error: function(xhr) {
             document.getElementById('stockListProgress').style.display = 'none';
@@ -305,8 +311,10 @@ function loadPriceStats() {
         } else {
             document.getElementById('priceLastSync').textContent = 'Chưa đồng bộ';
         }
-    }).fail(function() {
+    }).fail(function(xhr) {
         document.getElementById('priceFilesCount').textContent = '0 files';
+        document.getElementById('priceLastSync').textContent = 'Lỗi tải dữ liệu';
+        console.error('Failed to load price stats:', xhr.responseJSON?.error || 'Unknown error');
     });
 }
 
@@ -396,7 +404,7 @@ function startProgressPolling() {
         $.get('/admin/api/prices/progress', function(data) {
             updatePriceProgress(data);
         });
-    }, 2000); // Poll every 2 seconds
+    }, PROGRESS_POLL_INTERVAL_MS);
 }
 
 function stopProgressPolling() {

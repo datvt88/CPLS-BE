@@ -219,6 +219,8 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 	var adminStockController *admin.StockController
 	if supabaseClient, err := services.NewSupabaseDBClient(); err == nil {
 		adminStockController = admin.NewStockController(supabaseClient)
+	} else {
+		log.Printf("Warning: Supabase client not available for admin stock controller: %v", err)
 	}
 
 	// Get auth controllers (will be re-initialized with DB if not using Supabase)
