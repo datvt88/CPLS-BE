@@ -10,6 +10,7 @@ import (
 	"go_backend_project/controllers"
 	"go_backend_project/middleware"
 	"go_backend_project/models"
+	"go_backend_project/services"
 	"go_backend_project/services/trading"
 
 	"github.com/gin-gonic/gin"
@@ -214,6 +215,14 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 	// Initialize admin controller with trading bot (can be nil)
 	adminController := admin.NewAdminController(db, tradingBot)
 
+	// Initialize admin stock controller for API endpoints
+	var adminStockController *admin.StockController
+	if supabaseClient, err := services.NewSupabaseDBClient(); err == nil {
+		adminStockController = admin.NewStockController(supabaseClient)
+	} else {
+		log.Printf("Warning: Supabase client not available for admin stock controller: %v", err)
+	}
+
 	// Get auth controllers (will be re-initialized with DB if not using Supabase)
 	// Note: This uses caching, so even if called before with nil db, it will update
 	// the cached controllers with GORM auth if db is now available
@@ -308,6 +317,68 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 			actions.POST("/create-admin-user", adminController.CreateAdminUserAction)
 			actions.POST("/update-user-status", adminController.UpdateUserStatusAction)
 			actions.POST("/update-user-role", adminController.UpdateUserRoleAction)
+		}
+
+		// Admin API routes - only if stock controller is available
+		if adminStockController != nil {
+			api := protected.Group("/api")
+			{
+				// Stock management endpoints
+				stocks := api.Group("/stocks")
+				{
+					stocks.GET("/:code", adminStockController.GetStock)
+					stocks.POST("/sync", adminStockController.SyncStocks)
+					stocks.DELETE("/:code", adminStockController.DeleteStock)
+					stocks.GET("/stats", adminStockController.GetStats)
+					stocks.GET("/search", adminStockController.SearchStocks)
+					stocks.GET("/export", adminStockController.ExportStocks)
+					stocks.POST("/import", adminStockController.ImportStocks)
+					stocks.GET("/scheduler", adminStockController.GetSchedulerConfig)
+					stocks.PUT("/scheduler", adminStockController.UpdateSchedulerConfig)
+				}
+
+				// Price sync endpoints
+				prices := api.Group("/prices")
+				{
+					prices.GET("/config", adminStockController.GetPriceConfig)
+					prices.PUT("/config", adminStockController.UpdatePriceConfig)
+					prices.POST("/sync", adminStockController.StartPriceSync)
+					prices.POST("/stop", adminStockController.StopPriceSync)
+					prices.GET("/progress", adminStockController.GetPriceSyncProgress)
+					prices.GET("/stats", adminStockController.GetPriceSyncStats)
+					prices.POST("/:code", adminStockController.SyncSingleStockPrice)
+					prices.GET("/:code", adminStockController.GetStockPrice)
+				}
+
+				// Indicator endpoints
+				indicators := api.Group("/indicators")
+				{
+					indicators.POST("/calculate", adminStockController.CalculateAllIndicators)
+					indicators.GET("/summary", adminStockController.GetIndicatorSummary)
+					indicators.GET("/top-rs", adminStockController.GetTopRSStocks)
+					indicators.GET("/:code", adminStockController.GetStockIndicators)
+					indicators.POST("/filter", adminStockController.FilterStocks)
+				}
+
+				// MongoDB operations
+				mongodb := api.Group("/mongodb")
+				{
+					mongodb.GET("/status", adminStockController.GetMongoDBStatus)
+					mongodb.POST("/reconnect", adminStockController.ReconnectMongoDB)
+					mongodb.POST("/sync-to", adminStockController.SyncToMongoDB)
+					mongodb.POST("/restore-from", adminStockController.RestoreFromMongoDB)
+				}
+
+				// File management
+				files := api.Group("/files")
+				{
+					files.GET("/status", adminStockController.GetFilesStatus)
+					files.GET("/view", adminStockController.ViewFile)
+				}
+
+				// Public API toggle
+				api.POST("/toggle-public-api", adminStockController.TogglePublicAPI)
+			}
 		}
 	}
 	

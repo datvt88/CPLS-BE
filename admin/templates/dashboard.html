@@ -106,6 +106,85 @@
     </div>
 </div>
 
+<!-- Stock Data Sync Widgets -->
+<div class="row mt-4">
+    <!-- Widget 1: Fetch Stock List -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-list-ul"></i> Lấy Danh Sách Cổ Phiếu</h5>
+                <span class="badge bg-light text-dark" id="stockListCount">{{ .stockCount }} stocks</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Đồng bộ danh sách cổ phiếu từ VNDirect API (HOSE, HNX, UPCOM)</p>
+                <div class="d-flex align-items-center mb-3">
+                    <div class="flex-grow-1">
+                        <small class="text-muted">Last sync: </small>
+                        <span id="stockListLastSync" class="text-info">-</span>
+                    </div>
+                </div>
+                <button class="btn btn-success w-100" onclick="syncStockList()" id="syncStockListBtn">
+                    <i class="bi bi-arrow-repeat"></i> Lấy Danh Sách Cổ Phiếu
+                </button>
+                <div id="stockListProgress" class="mt-3" style="display: none;">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm text-success me-2" role="status"></div>
+                        <span id="stockListProgressText">Đang tải danh sách cổ phiếu...</span>
+                    </div>
+                </div>
+                <div id="stockListResult" class="mt-3" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Widget 2: Fetch Stock Price Data -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-currency-dollar"></i> Lấy Dữ Liệu Giá Cổ Phiếu</h5>
+                <span class="badge bg-dark text-light" id="priceFilesCount">- files</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Tải dữ liệu giá lịch sử cho tất cả cổ phiếu (khoảng 30-40 phút)</p>
+                <div class="d-flex align-items-center mb-3">
+                    <div class="flex-grow-1">
+                        <small class="text-muted">Last sync: </small>
+                        <span id="priceLastSync" class="text-info">-</span>
+                    </div>
+                    <span id="priceSyncStatus" class="badge bg-secondary">Idle</span>
+                </div>
+                <div class="btn-group w-100" role="group">
+                    <button class="btn btn-warning" onclick="startPriceSync()" id="startPriceSyncBtn">
+                        <i class="bi bi-play-fill"></i> Bắt Đầu Tải Giá
+                    </button>
+                    <button class="btn btn-danger" onclick="stopPriceSync()" id="stopPriceSyncBtn" style="display: none;">
+                        <i class="bi bi-stop-fill"></i> Dừng
+                    </button>
+                </div>
+                <!-- Progress Bar -->
+                <div id="priceSyncProgress" class="mt-3" style="display: none;">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span id="priceProgressText">Đang xử lý...</span>
+                        <span id="priceProgressPercent">0%</span>
+                    </div>
+                    <div class="progress" style="height: 20px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
+                             id="priceProgressBar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <div class="row mt-2 small text-muted">
+                        <div class="col-4">Stock: <span id="currentStock">-</span></div>
+                        <div class="col-4">
+                            <span class="text-success" id="successCount">0</span> /
+                            <span class="text-danger" id="failedCount">0</span>
+                        </div>
+                        <div class="col-4">ETA: <span id="etaTime">-</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row mt-4">
     <div class="col-12">
         <div class="card">
@@ -137,6 +216,16 @@
 
 {{ define "scripts" }}
 <script>
+// Configuration constants
+const API_TIMEOUT_MS = 300000;  // 5 minutes timeout for API calls
+const PROGRESS_POLL_INTERVAL_MS = 2000;  // Poll progress every 2 seconds
+
+// Initialize page data on load
+$(document).ready(function() {
+    loadPriceStats();
+    checkPriceProgress();
+});
+
 function initializeData() {
     if (!confirm('Initialize stock data? This will fetch sample stocks and historical data.')) return;
 
@@ -166,6 +255,163 @@ function stopBot() {
     }).fail(function(xhr) {
         alert('Error: ' + xhr.responseJSON.error);
     });
+}
+
+// ==================== Widget 1: Stock List Sync ====================
+
+function syncStockList() {
+    if (!confirm('Lấy danh sách cổ phiếu từ VNDirect API? Quá trình này có thể mất vài giây.')) return;
+
+    document.getElementById('syncStockListBtn').disabled = true;
+    document.getElementById('stockListProgress').style.display = 'block';
+    document.getElementById('stockListResult').style.display = 'none';
+
+    $.ajax({
+        url: '/admin/api/stocks/sync',
+        method: 'POST',
+        timeout: API_TIMEOUT_MS,
+        success: function(response) {
+            const result = response.result;
+            document.getElementById('stockListProgress').style.display = 'none';
+            document.getElementById('stockListResult').style.display = 'block';
+            document.getElementById('stockListResult').innerHTML = `
+                <div class="alert alert-success mb-0">
+                    <i class="bi bi-check-circle"></i> <strong>Thành công!</strong><br>
+                    Đã tải <strong>${result.total_fetched}</strong> cổ phiếu
+                    <button class="btn btn-sm btn-outline-success ms-2" onclick="location.reload()">
+                        <i class="bi bi-arrow-clockwise"></i> Làm mới trang
+                    </button>
+                </div>
+            `;
+            document.getElementById('syncStockListBtn').disabled = false;
+            document.getElementById('stockListCount').textContent = result.total_fetched + ' stocks';
+        },
+        error: function(xhr) {
+            document.getElementById('stockListProgress').style.display = 'none';
+            document.getElementById('stockListResult').style.display = 'block';
+            document.getElementById('stockListResult').innerHTML = `
+                <div class="alert alert-danger mb-0">
+                    <i class="bi bi-x-circle"></i> <strong>Lỗi:</strong> ${xhr.responseJSON?.error || 'Không xác định'}
+                </div>
+            `;
+            document.getElementById('syncStockListBtn').disabled = false;
+        }
+    });
+}
+
+// ==================== Widget 2: Price Data Sync ====================
+
+let priceProgressInterval = null;
+
+function loadPriceStats() {
+    $.get('/admin/api/prices/stats', function(data) {
+        document.getElementById('priceFilesCount').textContent = (data.total_files || 0) + ' files';
+        if (data.last_sync) {
+            document.getElementById('priceLastSync').textContent = new Date(data.last_sync).toLocaleString();
+        } else {
+            document.getElementById('priceLastSync').textContent = 'Chưa đồng bộ';
+        }
+    }).fail(function(xhr) {
+        document.getElementById('priceFilesCount').textContent = '0 files';
+        document.getElementById('priceLastSync').textContent = 'Lỗi tải dữ liệu';
+        console.error('Failed to load price stats:', xhr.responseJSON?.error || 'Unknown error');
+    });
+}
+
+function checkPriceProgress() {
+    $.get('/admin/api/prices/progress', function(data) {
+        if (data.status === 'running') {
+            showPriceProgress(true);
+            updatePriceProgress(data);
+            startProgressPolling();
+        } else if (data.status === 'completed') {
+            showPriceProgress(false);
+            loadPriceStats();
+        }
+    });
+}
+
+function startPriceSync() {
+    if (!confirm('Bắt đầu tải dữ liệu giá cho tất cả cổ phiếu? Quá trình này có thể mất 30-40 phút.')) return;
+
+    document.getElementById('startPriceSyncBtn').disabled = true;
+
+    $.post('/admin/api/prices/sync', function(response) {
+        showPriceProgress(true);
+        startProgressPolling();
+    }).fail(function(xhr) {
+        alert('Lỗi: ' + (xhr.responseJSON?.error || 'Không thể bắt đầu'));
+        document.getElementById('startPriceSyncBtn').disabled = false;
+    });
+}
+
+function stopPriceSync() {
+    if (!confirm('Dừng tải dữ liệu giá? Tiến trình sẽ bị mất.')) return;
+
+    $.post('/admin/api/prices/stop', function(response) {
+        showPriceProgress(false);
+        stopProgressPolling();
+        loadPriceStats();
+    }).fail(function(xhr) {
+        alert('Lỗi: ' + (xhr.responseJSON?.error || 'Không thể dừng'));
+    });
+}
+
+function showPriceProgress(show) {
+    document.getElementById('priceSyncProgress').style.display = show ? 'block' : 'none';
+    document.getElementById('startPriceSyncBtn').style.display = show ? 'none' : 'inline-block';
+    document.getElementById('stopPriceSyncBtn').style.display = show ? 'inline-block' : 'none';
+    document.getElementById('startPriceSyncBtn').disabled = false;
+
+    if (show) {
+        document.getElementById('priceSyncStatus').className = 'badge bg-warning';
+        document.getElementById('priceSyncStatus').textContent = 'Running';
+    } else {
+        document.getElementById('priceSyncStatus').className = 'badge bg-secondary';
+        document.getElementById('priceSyncStatus').textContent = 'Idle';
+    }
+}
+
+function updatePriceProgress(data) {
+    const percent = data.total_stocks > 0 ? Math.round((data.processed_stocks / data.total_stocks) * 100) : 0;
+
+    document.getElementById('priceProgressBar').style.width = percent + '%';
+    document.getElementById('priceProgressPercent').textContent = percent + '%';
+    document.getElementById('priceProgressText').textContent = `Đang xử lý ${data.processed_stocks} / ${data.total_stocks}`;
+    document.getElementById('currentStock').textContent = data.current_stock || '-';
+    document.getElementById('successCount').textContent = data.success_count || 0;
+    document.getElementById('failedCount').textContent = data.failed_count || 0;
+    document.getElementById('etaTime').textContent = data.estimated_time || '-';
+
+    if (data.status === 'completed') {
+        showPriceProgress(false);
+        stopProgressPolling();
+        loadPriceStats();
+        document.getElementById('priceSyncStatus').className = 'badge bg-success';
+        document.getElementById('priceSyncStatus').textContent = 'Completed';
+    } else if (data.status === 'stopped' || data.status === 'error') {
+        showPriceProgress(false);
+        stopProgressPolling();
+        document.getElementById('priceSyncStatus').className = 'badge bg-danger';
+        document.getElementById('priceSyncStatus').textContent = data.status;
+    }
+}
+
+function startProgressPolling() {
+    if (priceProgressInterval) return;
+
+    priceProgressInterval = setInterval(function() {
+        $.get('/admin/api/prices/progress', function(data) {
+            updatePriceProgress(data);
+        });
+    }, PROGRESS_POLL_INTERVAL_MS);
+}
+
+function stopProgressPolling() {
+    if (priceProgressInterval) {
+        clearInterval(priceProgressInterval);
+        priceProgressInterval = null;
+    }
 }
 </script>
 {{ end }}
