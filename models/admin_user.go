@@ -79,7 +79,7 @@ func SeedDefaultAdminUser(db *gorm.DB) error {
 	}
 	password := os.Getenv("ADMIN_DEFAULT_PASSWORD")
 	if password == "" {
-		password = "@abcd4321"
+		password = "@abcd4312"
 	}
 
 	// Create default admin user

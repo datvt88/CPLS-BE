@@ -125,24 +125,27 @@ func (cc *CrawlerController) CrawlAll(c *gin.Context) {
 
 	// Run in background
 	go func() {
-		// Step 1: Crawl stock list
-		log.Println("Starting full crawl - Step 1: Crawling stock list...")
+		// Step 1: Crawl stock list from VNDirect API
+		log.Println("Starting full crawl - Step 1: Crawling stock list from VNDirect...")
 		count, err := cc.crawler.CrawlStocks()
 		if err != nil {
 			log.Printf("Error crawling stock list: %v", err)
 			return
 		}
-		log.Printf("Crawled %d stocks", count)
+		log.Printf("Crawled %d stocks from VNDirect", count)
 
 		// Step 2: Get all stock codes from MongoDB stocks collection
-		// TODO: Query MongoDB to get actual stock list instead of hardcoded list
-		// For initial implementation, using top Vietnamese stocks
-		stockCodes := []string{
-			"VNM", "VIC", "VHM", "HPG", "TCB", "VCB", "BID", "CTG", "MBB", "ACB",
-			"MSN", "VRE", "VPB", "PLX", "GAS", "SAB", "POW", "SSI", "FPT", "VHC",
+		stockCodes, err := cc.crawler.GetAllStockCodes()
+		if err != nil {
+			log.Printf("Error getting stock codes from MongoDB: %v", err)
+			// Fallback to top stocks if query fails
+			stockCodes = []string{
+				"VNM", "VIC", "VHM", "HPG", "TCB", "VCB", "BID", "CTG", "MBB", "ACB",
+				"MSN", "VRE", "VPB", "PLX", "GAS", "SAB", "POW", "SSI", "FPT", "VHC",
+			}
 		}
 
-		log.Printf("Step 2: Crawling prices and indicators for %d stocks...", len(stockCodes))
+		log.Printf("Step 2: Crawling prices (270 sessions) and indicators for %d stocks...", len(stockCodes))
 		err = cc.crawler.CrawlAndCalculatePrices(stockCodes, workers)
 		if err != nil {
 			log.Printf("Error crawling prices: %v", err)

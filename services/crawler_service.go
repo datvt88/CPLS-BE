@@ -87,20 +87,22 @@ func NewCrawlerService(mongoClient *mongo.Client, dbName string) *CrawlerService
 }
 
 // CrawlStocks fetches stock list from VNDirect and upserts to MongoDB
+// Uses VNDirect API: https://api-finfo.vndirect.com.vn/v4/stocks?q=type:stock~status:listed~floor:HOSE,HNX,UPCOM&size=9999
 func (cs *CrawlerService) CrawlStocks() (int, error) {
 	if cs.mongoDB == nil {
 		return 0, fmt.Errorf("MongoDB not configured")
 	}
 
-	// VNDirect API endpoint for stock list
-	url := "https://finfo-api.vndirect.com.vn/v4/stocks"
+	// VNDirect API endpoint for stock list with proper query parameters
+	url := "https://api-finfo.vndirect.com.vn/v4/stocks?q=type:stock~status:listed~floor:HOSE,HNX,UPCOM&size=9999"
 	
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := cs.httpClient.Do(req)
 	if err != nil {
@@ -116,9 +118,10 @@ func (cs *CrawlerService) CrawlStocks() (int, error) {
 	var apiResponse struct {
 		Data []struct {
 			Code      string  `json:"code"`
-			Exchange  string  `json:"exchange"`
-			Name      string  `json:"name"`
+			Floor     string  `json:"floor"`
 			Type      string  `json:"type"`
+			Status    string  `json:"status"`
+			CompanyName string `json:"companyName"`
 		} `json:"data"`
 	}
 
@@ -132,15 +135,11 @@ func (cs *CrawlerService) CrawlStocks() (int, error) {
 	now := time.Now()
 
 	for _, stock := range apiResponse.Data {
-		// Only process stocks (not indices)
-		if stock.Type != "s" {
-			continue
-		}
-
+		// Process all returned stocks (API already filters by type:stock)
 		stockData := StockData{
 			Code:      stock.Code,
-			Exchange:  stock.Exchange,
-			Name:      stock.Name,
+			Exchange:  stock.Floor,
+			Name:      stock.CompanyName,
 			UpdatedAt: now,
 		}
 
@@ -240,8 +239,8 @@ func (cs *CrawlerService) CrawlAndCalculatePrices(stockCodes []string, workers i
 
 // processStockPriceAndIndicators processes a single stock: fetch prices and calculate indicators
 func (cs *CrawlerService) processStockPriceAndIndicators(code string) error {
-	// Fetch price data from VNDirect
-	prices, err := cs.fetchPriceData(code, 365) // Last 1 year
+	// Fetch price data from VNDirect (270 sessions)
+	prices, err := cs.fetchPriceData(code, 270)
 	if err != nil {
 		return fmt.Errorf("failed to fetch prices for %s: %w", code, err)
 	}
@@ -282,22 +281,23 @@ func (cs *CrawlerService) processStockPriceAndIndicators(code string) error {
 }
 
 // fetchPriceData fetches historical price data from VNDirect API
-func (cs *CrawlerService) fetchPriceData(code string, days int) ([]PriceData, error) {
-	// Calculate date range
-	endDate := time.Now()
-	startDate := endDate.AddDate(0, 0, -days)
+// Uses VNDirect API: https://api-finfo.vndirect.com.vn/v4/stock_prices?sort=date:desc&q=code:XXX&size=270
+func (cs *CrawlerService) fetchPriceData(code string, size int) ([]PriceData, error) {
+	// Use size=270 by default for 270 trading sessions
+	if size <= 0 {
+		size = 270
+	}
 
-	url := fmt.Sprintf("https://finfo-api.vndirect.com.vn/v4/stock_prices?symbols=%s&from=%s&to=%s&sort=date",
-		code,
-		startDate.Format("2006-01-02"),
-		endDate.Format("2006-01-02"))
+	url := fmt.Sprintf("https://api-finfo.vndirect.com.vn/v4/stock_prices?sort=date:desc&q=code:%s&size=%d",
+		code, size)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := cs.httpClient.Do(req)
 	if err != nil {
@@ -312,13 +312,19 @@ func (cs *CrawlerService) fetchPriceData(code string, days int) ([]PriceData, er
 
 	var apiResponse struct {
 		Data []struct {
-			Date   string  `json:"date"`
-			Open   float64 `json:"open"`
-			High   float64 `json:"high"`
-			Low    float64 `json:"low"`
-			Close  float64 `json:"close"`
-			Volume int64   `json:"volume"`
-			Value  float64 `json:"value"`
+			Date            string  `json:"date"`
+			Code            string  `json:"code"`
+			Open            float64 `json:"open"`
+			High            float64 `json:"high"`
+			Low             float64 `json:"low"`
+			Close           float64 `json:"close"`
+			Volume          int64   `json:"nmVolume"`
+			Value           float64 `json:"nmValue"`
+			PctChange       float64 `json:"pctChange"`
+			BasicPrice      float64 `json:"basicPrice"`
+			FloorPrice      float64 `json:"floorPrice"`
+			CeilingPrice    float64 `json:"ceilingPrice"`
+			AveragePrice    float64 `json:"averagePrice"`
 		} `json:"data"`
 	}
 
@@ -326,8 +332,10 @@ func (cs *CrawlerService) fetchPriceData(code string, days int) ([]PriceData, er
 		return nil, err
 	}
 
+	// Reverse order since API returns date:desc, we want ascending order for calculations
 	var prices []PriceData
-	for _, p := range apiResponse.Data {
+	for i := len(apiResponse.Data) - 1; i >= 0; i-- {
+		p := apiResponse.Data[i]
 		date, _ := time.Parse("2006-01-02", p.Date)
 		prices = append(prices, PriceData{
 			Date:   date,
@@ -553,4 +561,38 @@ func (cs *CrawlerService) CreateIndexes() error {
 
 	log.Println("MongoDB indexes created successfully")
 	return nil
+}
+
+// GetAllStockCodes retrieves all stock codes from the stocks collection
+func (cs *CrawlerService) GetAllStockCodes() ([]string, error) {
+	if cs.mongoDB == nil {
+		return nil, fmt.Errorf("MongoDB not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	collection := cs.mongoDB.Collection("stocks")
+	
+	// Find all stocks and project only the code field
+	cursor, err := collection.Find(ctx, bson.M{}, options.Find().SetProjection(bson.M{"code": 1}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query stocks: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var codes []string
+	for cursor.Next(ctx) {
+		var result struct {
+			Code string `bson:"code"`
+		}
+		if err := cursor.Decode(&result); err != nil {
+			continue
+		}
+		if result.Code != "" {
+			codes = append(codes, result.Code)
+		}
+	}
+
+	return codes, nil
 }
