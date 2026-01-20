@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
-	"go_backend_project/models"
 	"github.com/shopspring/decimal"
+	"go_backend_project/models"
+	"go_backend_project/services"
 	"gorm.io/gorm"
 )
 
@@ -43,47 +46,92 @@ type SSIQuoteResponse struct {
 	} `json:"data"`
 }
 
-// VNDirectResponse represents VNDirect API response
-type VNDirectResponse struct {
-	Data []struct {
-		Code          string  `json:"code"`
-		Date          string  `json:"date"`
-		Open          float64 `json:"open"`
-		High          float64 `json:"high"`
-		Low           float64 `json:"low"`
-		Close         float64 `json:"close"`
-		Volume        int64   `json:"nmVolume"`
-		Value         float64 `json:"nmValue"`
-	} `json:"data"`
+// VNDirectPriceResponse represents VNDirect price API response
+type VNDirectPriceResponse struct {
+	Data []VNDirectPriceData `json:"data"`
+}
+
+// VNDirectPriceData represents VNDirect daily price data
+type VNDirectPriceData struct {
+	Code      string  `json:"code"`
+	Date      string  `json:"date"`
+	Open      float64 `json:"open"`
+	High      float64 `json:"high"`
+	Low       float64 `json:"low"`
+	Close     float64 `json:"close"`
+	Volume    float64 `json:"volume"`
+	Value     float64 `json:"value"`
+	Change    float64 `json:"change"`
+	PctChange float64 `json:"pctChange"`
 }
 
 // FetchStockList fetches list of all stocks from Vietnamese exchanges
 func (df *DataFetcher) FetchStockList() error {
-	// Sample stocks - in production, fetch from actual API
-	stocks := []models.Stock{
-		{Symbol: "VNM", Name: "Vinamilk", Exchange: "HOSE", Industry: "Consumer Goods", Status: "active"},
-		{Symbol: "VIC", Name: "Vingroup", Exchange: "HOSE", Industry: "Real Estate", Status: "active"},
-		{Symbol: "HPG", Name: "Hoa Phat Group", Exchange: "HOSE", Industry: "Steel", Status: "active"},
-		{Symbol: "VHM", Name: "Vinhomes", Exchange: "HOSE", Industry: "Real Estate", Status: "active"},
-		{Symbol: "VCB", Name: "Vietcombank", Exchange: "HOSE", Industry: "Banking", Status: "active"},
-		{Symbol: "TCB", Name: "Techcombank", Exchange: "HOSE", Industry: "Banking", Status: "active"},
-		{Symbol: "MSN", Name: "Masan Group", Exchange: "HOSE", Industry: "Consumer Goods", Status: "active"},
-		{Symbol: "FPT", Name: "FPT Corporation", Exchange: "HOSE", Industry: "Technology", Status: "active"},
-		{Symbol: "ACB", Name: "Asia Commercial Bank", Exchange: "HOSE", Industry: "Banking", Status: "active"},
-		{Symbol: "GAS", Name: "PetroVietnam Gas", Exchange: "HOSE", Industry: "Oil & Gas", Status: "active"},
+	if df.db == nil {
+		return fmt.Errorf("database not initialized")
 	}
 
-	for _, stock := range stocks {
-		// Check if stock already exists
+	vnStocks, err := services.FetchStocksFromVNDirect()
+	if err != nil {
+		return err
+	}
+
+	for _, vnStock := range vnStocks {
+		symbol := strings.ToUpper(strings.TrimSpace(vnStock.Code))
+		if symbol == "" {
+			continue
+		}
+
+		name := strings.TrimSpace(vnStock.CompanyName)
+		if name == "" {
+			name = strings.TrimSpace(vnStock.ShortName)
+		}
+		if name == "" {
+			name = symbol
+		}
+
+		exchange := strings.ToUpper(strings.TrimSpace(vnStock.Floor))
+		status := strings.ToLower(strings.TrimSpace(vnStock.Status))
+		if status == "listed" {
+			status = "active"
+		} else if status == "" {
+			status = "active"
+		}
+
+		var listingDate *time.Time
+		if vnStock.ListedDate != "" {
+			if parsedDate, err := time.Parse("2006-01-02", vnStock.ListedDate); err == nil {
+				listingDate = &parsedDate
+			}
+		}
+
 		var existing models.Stock
-		if err := df.db.Where("symbol = ?", stock.Symbol).First(&existing).Error; err != nil {
+		if err := df.db.Where("symbol = ?", symbol).First(&existing).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				// Create new stock
+				stock := models.Stock{
+					Symbol:      symbol,
+					Name:        name,
+					Exchange:    exchange,
+					Status:      status,
+					ListingDate: listingDate,
+				}
 				if err := df.db.Create(&stock).Error; err != nil {
-					return fmt.Errorf("failed to create stock %s: %w", stock.Symbol, err)
+					return fmt.Errorf("failed to create stock %s: %w", symbol, err)
 				}
 			} else {
 				return err
+			}
+		} else {
+			updates := map[string]interface{}{
+				"name":     name,
+				"exchange": exchange,
+				"status":   status,
+			}
+			if listingDate != nil {
+				updates["listing_date"] = listingDate
+			}
+			if err := df.db.Model(&existing).Updates(updates).Error; err != nil {
+				return fmt.Errorf("failed to update stock %s: %w", symbol, err)
 			}
 		}
 	}
@@ -93,61 +141,73 @@ func (df *DataFetcher) FetchStockList() error {
 
 // FetchHistoricalData fetches historical price data for a stock
 func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate time.Time) error {
-	// In production, this would call actual APIs like:
-	// - SSI iBoard API
-	// - VNDirect API
-	// - TCBS API
-	// For now, we'll generate sample data
-
+	if df.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
 	var stock models.Stock
 	if err := df.db.Where("symbol = ?", symbol).First(&stock).Error; err != nil {
 		return fmt.Errorf("stock not found: %w", err)
 	}
 
-	// Generate sample historical data
-	currentDate := startDate
-	basePrice := 50000.0 // Starting price
+	priceData, err := df.fetchVNDirectPrices(symbol, startDate, endDate)
+	if err != nil {
+		return err
+	}
 
-	for currentDate.Before(endDate) || currentDate.Equal(endDate) {
-		// Skip weekends
-		if currentDate.Weekday() == time.Saturday || currentDate.Weekday() == time.Sunday {
-			currentDate = currentDate.AddDate(0, 0, 1)
+	for _, data := range priceData {
+		priceDate, err := time.Parse("2006-01-02", data.Date)
+		if err != nil {
 			continue
 		}
 
-		// Generate realistic price movements
-		change := (float64(currentDate.Unix()%100) - 50) / 100.0 // Random change -0.5 to +0.5
-		openPrice := basePrice * (1 + change*0.02)
-		highPrice := openPrice * (1 + float64(currentDate.Unix()%50)/1000.0)
-		lowPrice := openPrice * (1 - float64(currentDate.Unix()%50)/1000.0)
-		closePrice := openPrice * (1 + change*0.01)
-		volume := int64(1000000 + (currentDate.Unix() % 5000000))
+		change := data.Change
+		if change == 0 {
+			change = data.Close - data.Open
+		}
+		changePercent := data.PctChange
+		if changePercent == 0 && data.Open != 0 {
+			changePercent = (data.Close - data.Open) / data.Open * 100
+		}
 
 		price := models.StockPrice{
 			StockID:       stock.ID,
-			Date:          currentDate,
-			Open:          decimal.NewFromFloat(openPrice),
-			High:          decimal.NewFromFloat(highPrice),
-			Low:           decimal.NewFromFloat(lowPrice),
-			Close:         decimal.NewFromFloat(closePrice),
-			Volume:        volume,
-			Value:         decimal.NewFromFloat(closePrice * float64(volume)),
-			AdjClose:      decimal.NewFromFloat(closePrice),
-			Change:        decimal.NewFromFloat(closePrice - openPrice),
-			ChangePercent: decimal.NewFromFloat((closePrice - openPrice) / openPrice * 100),
+			Date:          priceDate,
+			Open:          decimal.NewFromFloat(data.Open),
+			High:          decimal.NewFromFloat(data.High),
+			Low:           decimal.NewFromFloat(data.Low),
+			Close:         decimal.NewFromFloat(data.Close),
+			Volume:        int64(data.Volume),
+			Value:         decimal.NewFromFloat(data.Value),
+			AdjClose:      decimal.NewFromFloat(data.Close),
+			Change:        decimal.NewFromFloat(change),
+			ChangePercent: decimal.NewFromFloat(changePercent),
 		}
 
-		// Check if price already exists for this date
 		var existing models.StockPrice
-		err := df.db.Where("stock_id = ? AND date = ?", stock.ID, currentDate).First(&existing).Error
+		err = df.db.Where("stock_id = ? AND date = ?", stock.ID, priceDate).First(&existing).Error
 		if err == gorm.ErrRecordNotFound {
 			if err := df.db.Create(&price).Error; err != nil {
-				return fmt.Errorf("failed to create price for %s on %s: %w", symbol, currentDate, err)
+				return fmt.Errorf("failed to create price for %s on %s: %w", symbol, priceDate, err)
 			}
+			continue
+		}
+		if err != nil {
+			return err
 		}
 
-		basePrice = closePrice
-		currentDate = currentDate.AddDate(0, 0, 1)
+		if err := df.db.Model(&existing).Updates(map[string]interface{}{
+			"open":           price.Open,
+			"high":           price.High,
+			"low":            price.Low,
+			"close":          price.Close,
+			"volume":         price.Volume,
+			"value":          price.Value,
+			"adj_close":      price.AdjClose,
+			"change":         price.Change,
+			"change_percent": price.ChangePercent,
+		}).Error; err != nil {
+			return fmt.Errorf("failed to update price for %s on %s: %w", symbol, priceDate, err)
+		}
 	}
 
 	return nil
@@ -174,7 +234,8 @@ func (df *DataFetcher) FetchRealtimeQuote(symbol string) (*models.StockPrice, er
 // FetchVNDirectData fetches data from VNDirect API (placeholder)
 func (df *DataFetcher) FetchVNDirectData(symbol string) error {
 	// Example VNDirect API endpoint
-	url := fmt.Sprintf("https://finfo-api.vndirect.com.vn/v4/stock_prices?q=code:%s~date:gte:2024-01-01", symbol)
+	escapedSymbol := url.QueryEscape(strings.ToUpper(strings.TrimSpace(symbol)))
+	url := fmt.Sprintf("https://finfo-api.vndirect.com.vn/v4/stock_prices?symbols=%s&sort=date", escapedSymbol)
 
 	resp, err := df.httpClient.Get(url)
 	if err != nil {
@@ -187,7 +248,7 @@ func (df *DataFetcher) FetchVNDirectData(symbol string) error {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
-	var vnResponse VNDirectResponse
+	var vnResponse VNDirectPriceResponse
 	if err := json.Unmarshal(body, &vnResponse); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -196,6 +257,41 @@ func (df *DataFetcher) FetchVNDirectData(symbol string) error {
 	// Implementation depends on actual API structure
 
 	return nil
+}
+
+func (df *DataFetcher) fetchVNDirectPrices(symbol string, startDate, endDate time.Time) ([]VNDirectPriceData, error) {
+	escapedSymbol := url.QueryEscape(strings.ToUpper(strings.TrimSpace(symbol)))
+	fromDate := startDate.Format("2006-01-02")
+	toDate := endDate.Format("2006-01-02")
+	apiURL := fmt.Sprintf("https://finfo-api.vndirect.com.vn/v4/stock_prices?symbols=%s&from=%s&to=%s&sort=date",
+		escapedSymbol, fromDate, toDate)
+
+	resp, err := df.httpClient.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch VNDirect prices: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("VNDirect API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var response VNDirectPriceResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(response.Data) == 0 {
+		return nil, fmt.Errorf("no price data returned for %s", symbol)
+	}
+
+	return response.Data, nil
 }
 
 // FetchMarketIndices fetches market index data

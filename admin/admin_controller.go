@@ -30,13 +30,13 @@ type AdminController struct {
 func NewAdminController(db *gorm.DB, tradingBot *trading.TradingBot) *AdminController {
 	var dataFetcher *datafetcher.DataFetcher
 	var backtestEngine *backtesting.BacktestEngine
-	
+
 	// Only initialize services that require database if db is available
 	if db != nil {
 		dataFetcher = datafetcher.NewDataFetcher(db)
 		backtestEngine = backtesting.NewBacktestEngine(db)
 	}
-	
+
 	return &AdminController{
 		db:             db,
 		dataFetcher:    dataFetcher,
@@ -61,6 +61,7 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 			"adminUser":     adminUser,
 			"page":          "dashboard",
 			"title":         "Dashboard",
+			"latestPrices":  []models.StockPrice{},
 			"dbError":       "Database not connected. Please wait for system initialization.",
 		})
 		return
@@ -82,6 +83,12 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 	var userCount int64
 	ac.db.Model(&models.User{}).Count(&userCount)
 
+	var latestPrices []models.StockPrice
+	ac.db.Preload("Stock").
+		Order("date DESC").
+		Limit(10).
+		Find(&latestPrices)
+
 	// Check if trading bot is running (handle nil gracefully)
 	botRunning := false
 	if ac.tradingBot != nil {
@@ -98,6 +105,7 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 		"adminUser":     adminUser,
 		"page":          "dashboard",
 		"title":         "Dashboard",
+		"latestPrices":  latestPrices,
 	})
 }
 
