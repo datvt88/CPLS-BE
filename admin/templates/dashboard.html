@@ -150,15 +150,23 @@
 {{ end }}
 
 {{ define "scripts" }}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-j+Lt3w8bFVJURfKLDmD63c3GpXOX979jbPG4kgK3fR47iKDTH6SVTKh85RPXh7Lp" crossorigin="anonymous"></script>
 <script>
 let vnmPriceChart;
+const priceFormatter = new Intl.NumberFormat('vi-VN');
 
 function renderVNMChart(points, label) {
     const canvas = document.getElementById('vnmPriceChart');
     if (!canvas) return;
+    const normalizedPoints = points.map(point => {
+        const closeValue = Number(point.close);
+        return {
+            date: point.date,
+            close: Number.isFinite(closeValue) ? closeValue : 0
+        };
+    });
     if (!window.Chart) {
-        renderFallbackChart(canvas, points);
+        renderFallbackChart(canvas, normalizedPoints);
         return;
     }
 
@@ -169,10 +177,10 @@ function renderVNMChart(points, label) {
     vnmPriceChart = new Chart(canvas, {
         type: 'line',
         data: {
-            labels: points.map(point => point.date),
+            labels: normalizedPoints.map(point => point.date),
             datasets: [{
                 label: label,
-                data: points.map(point => point.close),
+                data: normalizedPoints.map(point => point.close),
                 borderColor: '#3498db',
                 backgroundColor: 'rgba(52, 152, 219, 0.15)',
                 tension: 0.2,
@@ -186,7 +194,7 @@ function renderVNMChart(points, label) {
                 legend: { display: false }
             },
             scales: {
-                y: { ticks: { callback: value => value.toLocaleString() } }
+                y: { ticks: { callback: value => priceFormatter.format(value) } }
             }
         }
     });
@@ -249,8 +257,10 @@ function loadVNMChart() {
                 renderVNMChart(fallback, 'VNM Close (Sample)');
                 return;
             }
+            const latestClose = Number(points[points.length - 1].close);
             if (statusEl) {
-                statusEl.textContent = `Latest close: ${points[points.length - 1].close.toLocaleString()}`;
+                const safeClose = Number.isFinite(latestClose) ? latestClose : 0;
+                statusEl.textContent = `Latest close: ${priceFormatter.format(safeClose)}`;
             }
             renderVNMChart(points, 'VNM Close');
         })

@@ -326,13 +326,11 @@ func (df *DataFetcher) FetchVNDirectDailyCloseHistory(symbol string, startDate, 
 		high := decimal.NewFromFloat(item.High)
 		low := decimal.NewFromFloat(item.Low)
 		closePrice := decimal.NewFromFloat(item.Close)
+		// VNDirect may omit value data; avoid estimating to keep calculations explicit.
 		value := decimal.NewFromFloat(item.Value)
-		if value.Equal(decimal.Zero) {
-			averagePrice := closePrice.Add(open).Div(decimal.NewFromInt(2))
-			value = averagePrice.Mul(decimal.NewFromInt(item.Volume))
-		}
 		changeBase := open
 		if !previousClose.Equal(decimal.Zero) {
+			// Prefer previous close for day-over-day change calculation.
 			changeBase = previousClose
 		}
 		change := closePrice.Sub(changeBase)

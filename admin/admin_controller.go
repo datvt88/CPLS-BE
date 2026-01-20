@@ -132,7 +132,7 @@ func (ac *AdminController) VNMPriceHistory(c *gin.Context) {
 		price := prices[i]
 		response = append(response, map[string]interface{}{
 			"date":  price.Date.Format("2006-01-02"),
-			"close": price.Close.InexactFloat64(),
+			"close": price.Close.String(),
 		})
 	}
 

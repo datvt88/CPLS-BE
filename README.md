@@ -106,6 +106,7 @@ Server runs on `http://localhost:8080`
   - Username: `datvt8x`
   - Password: `@abcd4321`
 - Override via `ADMIN_DEFAULT_USERNAME` and `ADMIN_DEFAULT_PASSWORD` environment variables.
+- For production, set strong credentials via environment variables and rotate the default password.
 
 ## 📚 API Endpoints
 
