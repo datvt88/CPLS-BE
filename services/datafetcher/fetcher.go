@@ -72,6 +72,11 @@ type VNDirectStockListResponse struct {
 	} `json:"data"`
 }
 
+const (
+	vndirectStockListURL   = "https://finfo-api.vndirect.com.vn/v4/stocks?size=2000"
+	vndirectPriceBatchSize = 400
+)
+
 // FetchStockList fetches list of all stocks from Vietnamese exchanges
 func (df *DataFetcher) FetchStockList() error {
 	// Sample stocks - in production, fetch from actual API
@@ -170,8 +175,7 @@ func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate tim
 
 // FetchVNDirectStockList fetches stock symbols from VNDirect API
 func (df *DataFetcher) FetchVNDirectStockList() error {
-	url := "https://finfo-api.vndirect.com.vn/v4/stocks?size=2000"
-	resp, err := df.httpClient.Get(url)
+	resp, err := df.httpClient.Get(vndirectStockListURL)
 	if err != nil {
 		return fmt.Errorf("failed to fetch VNDirect stock list: %w", err)
 	}
@@ -280,10 +284,12 @@ func (df *DataFetcher) FetchVNDirectDailyCloseHistory(symbol string, startDate, 
 		}
 	}
 
-	queryStart := normalizeVNDirectDate(startDate).Format("2006-01-02")
-	queryEnd := normalizeVNDirectDate(endDate).Format("2006-01-02")
-	url := fmt.Sprintf("https://finfo-api.vndirect.com.vn/v4/stock_prices?q=code:%s~date:gte:%s~date:lte:%s&sort=date:asc&size=400",
-		symbol, queryStart, queryEnd)
+	normalizedStart := normalizeVNDirectDate(startDate)
+	normalizedEnd := normalizeVNDirectDate(endDate)
+	queryStart := normalizedStart.Format("2006-01-02")
+	queryEnd := normalizedEnd.Format("2006-01-02")
+	url := fmt.Sprintf("https://finfo-api.vndirect.com.vn/v4/stock_prices?q=code:%s~date:gte:%s~date:lte:%s&sort=date:asc&size=%d",
+		symbol, queryStart, queryEnd, vndirectPriceBatchSize)
 
 	resp, err := df.httpClient.Get(url)
 	if err != nil {
@@ -301,6 +307,14 @@ func (df *DataFetcher) FetchVNDirectDailyCloseHistory(symbol string, startDate, 
 		return fmt.Errorf("failed to decode VNDirect prices: %w", err)
 	}
 
+	previousClose := decimal.Zero
+	var lastPrice models.StockPrice
+	if err := df.db.Where("stock_id = ? AND date < ?", stock.ID, normalizedStart).
+		Order("date DESC").
+		First(&lastPrice).Error; err == nil {
+		previousClose = lastPrice.Close
+	}
+
 	for _, item := range response.Data {
 		parsedDate, err := parseVNDirectDate(item.Date)
 		if err != nil {
@@ -314,12 +328,17 @@ func (df *DataFetcher) FetchVNDirectDailyCloseHistory(symbol string, startDate, 
 		closePrice := decimal.NewFromFloat(item.Close)
 		value := decimal.NewFromFloat(item.Value)
 		if value.Equal(decimal.Zero) {
-			value = closePrice.Mul(decimal.NewFromInt(item.Volume))
+			averagePrice := closePrice.Add(open).Div(decimal.NewFromInt(2))
+			value = averagePrice.Mul(decimal.NewFromInt(item.Volume))
 		}
-		change := closePrice.Sub(open)
+		changeBase := open
+		if !previousClose.Equal(decimal.Zero) {
+			changeBase = previousClose
+		}
+		change := closePrice.Sub(changeBase)
 		changePercent := decimal.Zero
-		if !open.Equal(decimal.Zero) {
-			changePercent = change.Div(open).Mul(decimal.NewFromFloat(100))
+		if !changeBase.Equal(decimal.Zero) {
+			changePercent = change.Div(changeBase).Mul(decimal.NewFromFloat(100))
 		}
 
 		price := models.StockPrice{
@@ -342,6 +361,7 @@ func (df *DataFetcher) FetchVNDirectDailyCloseHistory(symbol string, startDate, 
 			if err := df.db.Create(&price).Error; err != nil {
 				return fmt.Errorf("failed to create price for %s on %s: %w", symbol, normalizedDate, err)
 			}
+			previousClose = closePrice
 			continue
 		}
 		if err != nil {
@@ -363,6 +383,8 @@ func (df *DataFetcher) FetchVNDirectDailyCloseHistory(symbol string, startDate, 
 		if err := df.db.Model(&existing).Updates(updates).Error; err != nil {
 			return fmt.Errorf("failed to update price for %s on %s: %w", symbol, normalizedDate, err)
 		}
+
+		previousClose = closePrice
 	}
 
 	return nil

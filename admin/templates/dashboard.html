@@ -250,7 +250,7 @@ function loadVNMChart() {
                 return;
             }
             if (statusEl) {
-                statusEl.textContent = `Latest close: ${points[points.length - 1].close.toLocaleString()} VND`;
+                statusEl.textContent = `Latest close: ${points[points.length - 1].close.toLocaleString()}`;
             }
             renderVNMChart(points, 'VNM Close');
         })
