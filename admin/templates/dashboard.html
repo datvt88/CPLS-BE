@@ -48,6 +48,20 @@
 </div>
 
 <div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-light">
+                <h5><i class="bi bi-graph-up"></i> VNM Daily Close</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="vnmPriceChart" height="120"></canvas>
+                <p class="text-muted small mt-2" id="vnmPriceChartStatus"></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
     <div class="col-md-6">
         <div class="card">
             <div class="card-header bg-primary text-white">
@@ -136,7 +150,134 @@
 {{ end }}
 
 {{ define "scripts" }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-j+Lt3w8bFVJURfKLDmD63c3GpXOX979jbPG4kgK3fR47iKDTH6SVTKh85RPXh7Lp" crossorigin="anonymous"></script>
 <script>
+let vnmPriceChart;
+const priceFormatter = new Intl.NumberFormat('vi-VN');
+
+function renderVNMChart(points, label) {
+    const canvas = document.getElementById('vnmPriceChart');
+    if (!canvas) return;
+    const normalizedPoints = points.map(point => {
+        const closeValue = Number(point.close);
+        return {
+            date: point.date,
+            close: Number.isFinite(closeValue) ? closeValue : 0
+        };
+    });
+    if (!window.Chart) {
+        renderFallbackChart(canvas, normalizedPoints);
+        return;
+    }
+
+    if (vnmPriceChart) {
+        vnmPriceChart.destroy();
+    }
+
+    vnmPriceChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: normalizedPoints.map(point => point.date),
+            datasets: [{
+                label: label,
+                data: normalizedPoints.map(point => point.close),
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52, 152, 219, 0.15)',
+                tension: 0.2,
+                fill: true,
+                pointRadius: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                y: { ticks: { callback: value => priceFormatter.format(value) } }
+            }
+        }
+    });
+}
+
+function renderFallbackChart(canvas, points) {
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    const ratio = window.devicePixelRatio || 1;
+    const width = canvas.clientWidth || 600;
+    const height = canvas.clientHeight || 300;
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+    const padding = 20;
+    const values = points.map(point => point.close);
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    const range = maxValue - minValue || 1;
+
+    context.clearRect(0, 0, width, height);
+    context.strokeStyle = '#3498db';
+    context.lineWidth = 2;
+    context.beginPath();
+
+    points.forEach((point, index) => {
+        const x = padding + (index / (points.length - 1)) * (width - padding * 2);
+        const y = height - padding - ((point.close - minValue) / range) * (height - padding * 2);
+        if (index === 0) {
+            context.moveTo(x, y);
+        } else {
+            context.lineTo(x, y);
+        }
+    });
+
+    context.stroke();
+}
+
+function loadVNMChart() {
+    const statusEl = document.getElementById('vnmPriceChartStatus');
+    const fallback = [
+        { date: '2024-01-01', close: 78000 },
+        { date: '2024-01-08', close: 78500 },
+        { date: '2024-01-15', close: 79200 },
+        { date: '2024-01-22', close: 78800 },
+        { date: '2024-01-29', close: 80000 }
+    ];
+
+    fetch('/admin/api/vnm-prices?limit=90')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to load VNM prices');
+            }
+            return response.json();
+        })
+        .then(data => {
+            const points = Array.isArray(data.prices) ? data.prices : [];
+            if (!points.length) {
+                if (statusEl) {
+                    statusEl.textContent = 'No VNM price data available yet. Showing sample chart.';
+                }
+                renderVNMChart(fallback, 'VNM Close (Sample)');
+                return;
+            }
+            const latestClose = Number(points[points.length - 1].close);
+            if (statusEl) {
+                const safeClose = Number.isFinite(latestClose) ? latestClose : 0;
+                statusEl.textContent = `Latest close: ${priceFormatter.format(safeClose)}`;
+            }
+            renderVNMChart(points, 'VNM Close');
+        })
+        .catch(() => {
+            if (statusEl) {
+                statusEl.textContent = 'Unable to load live data. Showing sample chart.';
+            }
+            renderVNMChart(fallback, 'VNM Close (Sample)');
+        });
+}
+
+document.addEventListener('DOMContentLoaded', loadVNMChart);
+
 function initializeData() {
     if (!confirm('Initialize stock data? This will fetch sample stocks and historical data.')) return;
 

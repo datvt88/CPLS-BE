@@ -176,17 +176,17 @@ func SetupAdminProtectedRoutesEarly(router *gin.Engine) {
 	// Check if Supabase is configured
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
-	
+
 	// Only attempt early setup if Supabase is configured
 	if supabaseURL == "" || supabaseServiceKey == "" {
 		log.Printf("Deferring admin protected routes setup until database is ready (Supabase not configured)")
 		return
 	}
-	
+
 	// Try to initialize auth controllers
 	// Note: initializeAuthControllers uses caching, so calling it multiple times is safe
 	controllers := initializeAuthControllers(nil)
-	
+
 	// Only setup protected routes early if Supabase auth is actually available
 	// This allows dashboard access after Supabase login without waiting for database
 	if controllers.useSupabaseAuth && controllers.supabaseAuthController != nil {
@@ -196,7 +196,6 @@ func SetupAdminProtectedRoutesEarly(router *gin.Engine) {
 		log.Printf("Deferring admin protected routes setup until database is ready (Supabase auth test failed)")
 	}
 }
-
 
 // SetupAdminProtectedRoutes sets up protected admin routes after database is initialized
 // This can be called early with nil db/tradingBot when Supabase auth is available,
@@ -255,6 +254,7 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 
 	{
 		protected.GET("/dashboard", adminController.Dashboard)
+		protected.GET("/api/vnm-prices", adminController.VNMPriceHistory)
 		protected.GET("/stocks", adminController.StocksPage)
 		protected.GET("/strategies", adminController.StrategiesPage)
 		protected.GET("/backtests", adminController.BacktestsPage)
@@ -310,7 +310,7 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 			actions.POST("/update-user-role", adminController.UpdateUserRoleAction)
 		}
 	}
-	
+
 	log.Printf("Admin protected routes setup completed")
 }
 

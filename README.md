@@ -99,6 +99,15 @@ go run main.go
 
 Server runs on `http://localhost:8080`
 
+### Admin Panel Login
+
+- URL: `http://localhost:8080/admin/login`
+- Default credentials (seeded by `SeedDefaultAdminUser`):
+  - Username: `datvt8x`
+  - Password: `@abcd4321`
+- Override via `ADMIN_DEFAULT_USERNAME` and `ADMIN_DEFAULT_PASSWORD` environment variables.
+- For production, set strong credentials via environment variables and rotate the default password.
+
 ## 📚 API Endpoints
 
 ### User Management
@@ -302,6 +311,10 @@ SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_KEY=your-service-key
 SUPABASE_JWT_SECRET=your-jwt-secret
+
+# Admin panel defaults
+ADMIN_DEFAULT_USERNAME=datvt8x
+ADMIN_DEFAULT_PASSWORD=@abcd4321
 
 # JWT
 JWT_SECRET=your-jwt-secret
