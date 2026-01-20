@@ -4,10 +4,10 @@ import (
 	"log"
 	"time"
 
+	"github.com/go-co-op/gocron"
 	"go_backend_project/models"
 	"go_backend_project/services/analysis"
 	"go_backend_project/services/datafetcher"
-	"github.com/go-co-op/gocron"
 	"gorm.io/gorm"
 )
 
@@ -43,6 +43,16 @@ func (s *Scheduler) Start() {
 	// Fetch historical data daily at 16:00 (after market close)
 	s.cron.Every(1).Day().At("16:00").Do(func() {
 		s.fetchDailyHistoricalData()
+	})
+
+	// Fetch VNDirect stock list daily at 06:30
+	s.cron.Every(1).Day().At("06:30").Do(func() {
+		s.fetchVNDirectStockList()
+	})
+
+	// Fetch VNM daily close history at 18:00
+	s.cron.Every(1).Day().At("18:00").Do(func() {
+		s.fetchVNMDailyCloseHistory()
 	})
 
 	// Calculate technical indicators daily at 16:30
@@ -121,6 +131,32 @@ func (s *Scheduler) fetchDailyHistoricalData() {
 	}
 
 	log.Printf("Fetched historical data for %d stocks", len(stocks))
+}
+
+// fetchVNDirectStockList fetches stock list from VNDirect API
+func (s *Scheduler) fetchVNDirectStockList() {
+	log.Println("Fetching VNDirect stock list...")
+
+	if err := s.dataFetcher.FetchVNDirectStockList(); err != nil {
+		log.Printf("Error fetching VNDirect stock list: %v", err)
+		return
+	}
+
+	log.Println("VNDirect stock list updated")
+}
+
+// fetchVNMDailyCloseHistory fetches VNM daily close prices from VNDirect API
+func (s *Scheduler) fetchVNMDailyCloseHistory() {
+	log.Println("Fetching VNM daily close history...")
+
+	endDate := time.Now()
+	startDate := endDate.AddDate(-1, 0, 0)
+	if err := s.dataFetcher.FetchVNDirectDailyCloseHistory("VNM", startDate, endDate); err != nil {
+		log.Printf("Error fetching VNM daily close history: %v", err)
+		return
+	}
+
+	log.Println("VNM daily close history updated")
 }
 
 // calculateDailyIndicators calculates technical indicators for all stocks

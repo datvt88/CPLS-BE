@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
-	"go_backend_project/models"
 	"github.com/shopspring/decimal"
+	"go_backend_project/models"
 	"gorm.io/gorm"
 )
 
@@ -46,14 +47,28 @@ type SSIQuoteResponse struct {
 // VNDirectResponse represents VNDirect API response
 type VNDirectResponse struct {
 	Data []struct {
-		Code          string  `json:"code"`
-		Date          string  `json:"date"`
-		Open          float64 `json:"open"`
-		High          float64 `json:"high"`
-		Low           float64 `json:"low"`
-		Close         float64 `json:"close"`
-		Volume        int64   `json:"nmVolume"`
-		Value         float64 `json:"nmValue"`
+		Code   string  `json:"code"`
+		Date   string  `json:"date"`
+		Open   float64 `json:"open"`
+		High   float64 `json:"high"`
+		Low    float64 `json:"low"`
+		Close  float64 `json:"close"`
+		Volume int64   `json:"nmVolume"`
+		Value  float64 `json:"nmValue"`
+	} `json:"data"`
+}
+
+// VNDirectStockListResponse represents VNDirect stock list response
+type VNDirectStockListResponse struct {
+	Data []struct {
+		Code         string `json:"code"`
+		Name         string `json:"name"`
+		CompanyName  string `json:"companyName"`
+		ShortName    string `json:"shortName"`
+		Exchange     string `json:"exchange"`
+		IndustryName string `json:"industryName"`
+		ListingDate  string `json:"listingDate"`
+		Status       string `json:"status"`
 	} `json:"data"`
 }
 
@@ -153,6 +168,206 @@ func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate tim
 	return nil
 }
 
+// FetchVNDirectStockList fetches stock symbols from VNDirect API
+func (df *DataFetcher) FetchVNDirectStockList() error {
+	url := "https://finfo-api.vndirect.com.vn/v4/stocks?size=2000"
+	resp, err := df.httpClient.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to fetch VNDirect stock list: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("VNDirect stock list request failed: %s", strings.TrimSpace(string(body)))
+	}
+
+	var stockResponse VNDirectStockListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&stockResponse); err != nil {
+		return fmt.Errorf("failed to decode VNDirect stock list: %w", err)
+	}
+
+	for _, item := range stockResponse.Data {
+		if item.Code == "" {
+			continue
+		}
+
+		name := item.Name
+		if name == "" {
+			name = item.CompanyName
+		}
+		if name == "" {
+			name = item.ShortName
+		}
+		if name == "" {
+			name = item.Code
+		}
+
+		status := normalizeVNDirectStatus(item.Status)
+		if status == "" {
+			status = "active"
+		}
+
+		var listingDate *time.Time
+		if item.ListingDate != "" {
+			if parsed, err := parseVNDirectDate(item.ListingDate); err == nil {
+				normalized := normalizeVNDirectDate(parsed)
+				listingDate = &normalized
+			}
+		}
+
+		var existing models.Stock
+		if err := df.db.Where("symbol = ?", item.Code).First(&existing).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				stock := models.Stock{
+					Symbol:      item.Code,
+					Name:        name,
+					Exchange:    item.Exchange,
+					Industry:    item.IndustryName,
+					Status:      status,
+					ListingDate: listingDate,
+				}
+				if err := df.db.Create(&stock).Error; err != nil {
+					return fmt.Errorf("failed to create stock %s: %w", item.Code, err)
+				}
+				continue
+			}
+			return err
+		}
+
+		updates := map[string]interface{}{
+			"status": status,
+		}
+		if name != "" {
+			updates["name"] = name
+		}
+		if item.Exchange != "" {
+			updates["exchange"] = item.Exchange
+		}
+		if item.IndustryName != "" {
+			updates["industry"] = item.IndustryName
+		}
+		if listingDate != nil {
+			updates["listing_date"] = listingDate
+		}
+
+		if err := df.db.Model(&existing).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update stock %s: %w", item.Code, err)
+		}
+	}
+
+	return nil
+}
+
+// FetchVNDirectDailyCloseHistory fetches historical daily prices from VNDirect API
+func (df *DataFetcher) FetchVNDirectDailyCloseHistory(symbol string, startDate, endDate time.Time) error {
+	if symbol == "" {
+		return fmt.Errorf("symbol is required")
+	}
+
+	var stock models.Stock
+	if err := df.db.Where("symbol = ?", symbol).First(&stock).Error; err != nil {
+		if err != gorm.ErrRecordNotFound {
+			return fmt.Errorf("failed to load stock %s: %w", symbol, err)
+		}
+		stock = models.Stock{
+			Symbol: symbol,
+			Name:   symbol,
+			Status: "active",
+		}
+		if err := df.db.Create(&stock).Error; err != nil {
+			return fmt.Errorf("failed to create stock %s: %w", symbol, err)
+		}
+	}
+
+	queryStart := normalizeVNDirectDate(startDate).Format("2006-01-02")
+	queryEnd := normalizeVNDirectDate(endDate).Format("2006-01-02")
+	url := fmt.Sprintf("https://finfo-api.vndirect.com.vn/v4/stock_prices?q=code:%s~date:gte:%s~date:lte:%s&sort=date:asc&size=400",
+		symbol, queryStart, queryEnd)
+
+	resp, err := df.httpClient.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to fetch VNDirect prices: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("VNDirect price request failed: %s", strings.TrimSpace(string(body)))
+	}
+
+	var response VNDirectResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return fmt.Errorf("failed to decode VNDirect prices: %w", err)
+	}
+
+	for _, item := range response.Data {
+		parsedDate, err := parseVNDirectDate(item.Date)
+		if err != nil {
+			continue
+		}
+		normalizedDate := normalizeVNDirectDate(parsedDate)
+
+		open := decimal.NewFromFloat(item.Open)
+		high := decimal.NewFromFloat(item.High)
+		low := decimal.NewFromFloat(item.Low)
+		closePrice := decimal.NewFromFloat(item.Close)
+		value := decimal.NewFromFloat(item.Value)
+		if value.Equal(decimal.Zero) {
+			value = closePrice.Mul(decimal.NewFromInt(item.Volume))
+		}
+		change := closePrice.Sub(open)
+		changePercent := decimal.Zero
+		if !open.Equal(decimal.Zero) {
+			changePercent = change.Div(open).Mul(decimal.NewFromFloat(100))
+		}
+
+		price := models.StockPrice{
+			StockID:       stock.ID,
+			Date:          normalizedDate,
+			Open:          open,
+			High:          high,
+			Low:           low,
+			Close:         closePrice,
+			Volume:        item.Volume,
+			Value:         value,
+			AdjClose:      closePrice,
+			Change:        change,
+			ChangePercent: changePercent,
+		}
+
+		var existing models.StockPrice
+		err = df.db.Where("stock_id = ? AND date = ?", stock.ID, normalizedDate).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			if err := df.db.Create(&price).Error; err != nil {
+				return fmt.Errorf("failed to create price for %s on %s: %w", symbol, normalizedDate, err)
+			}
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("failed to load existing price: %w", err)
+		}
+
+		updates := map[string]interface{}{
+			"open":           price.Open,
+			"high":           price.High,
+			"low":            price.Low,
+			"close":          price.Close,
+			"volume":         price.Volume,
+			"value":          price.Value,
+			"adj_close":      price.AdjClose,
+			"change":         price.Change,
+			"change_percent": price.ChangePercent,
+		}
+
+		if err := df.db.Model(&existing).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update price for %s on %s: %w", symbol, normalizedDate, err)
+		}
+	}
+
+	return nil
+}
+
 // FetchRealtimeQuote fetches real-time quote for a stock
 func (df *DataFetcher) FetchRealtimeQuote(symbol string) (*models.StockPrice, error) {
 	// In production, call real-time API
@@ -234,4 +449,38 @@ func (df *DataFetcher) FetchMarketIndices() error {
 	}
 
 	return nil
+}
+
+func normalizeVNDirectStatus(status string) string {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	switch normalized {
+	case "", "listed", "trading", "active":
+		return "active"
+	case "delisted":
+		return "delisted"
+	case "suspended":
+		return "suspended"
+	default:
+		return normalized
+	}
+}
+
+func parseVNDirectDate(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, fmt.Errorf("date is empty")
+	}
+	if parsed, err := time.Parse("2006-01-02", value); err == nil {
+		return parsed, nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed, nil
+	}
+	if parsed, err := time.Parse("2006-01-02T15:04:05", value); err == nil {
+		return parsed, nil
+	}
+	return time.Time{}, fmt.Errorf("unsupported VNDirect date format: %s", value)
+}
+
+func normalizeVNDirectDate(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
 }

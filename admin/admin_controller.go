@@ -30,13 +30,13 @@ type AdminController struct {
 func NewAdminController(db *gorm.DB, tradingBot *trading.TradingBot) *AdminController {
 	var dataFetcher *datafetcher.DataFetcher
 	var backtestEngine *backtesting.BacktestEngine
-	
+
 	// Only initialize services that require database if db is available
 	if db != nil {
 		dataFetcher = datafetcher.NewDataFetcher(db)
 		backtestEngine = backtesting.NewBacktestEngine(db)
 	}
-	
+
 	return &AdminController{
 		db:             db,
 		dataFetcher:    dataFetcher,
@@ -98,6 +98,47 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 		"adminUser":     adminUser,
 		"page":          "dashboard",
 		"title":         "Dashboard",
+	})
+}
+
+// VNMPriceHistory returns VNM daily close history for admin chart
+func (ac *AdminController) VNMPriceHistory(c *gin.Context) {
+	if !ac.requireDatabaseAvailable(c) {
+		return
+	}
+
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "90"))
+	if err != nil || limit <= 0 || limit > 365 {
+		limit = 90
+	}
+
+	var stock models.Stock
+	if err := ac.db.Where("symbol = ?", "VNM").First(&stock).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "VNM stock not found"})
+		return
+	}
+
+	var prices []models.StockPrice
+	if err := ac.db.Where("stock_id = ?", stock.ID).
+		Order("date DESC").
+		Limit(limit).
+		Find(&prices).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load VNM prices"})
+		return
+	}
+
+	response := make([]map[string]interface{}, 0, len(prices))
+	for i := len(prices) - 1; i >= 0; i-- {
+		price := prices[i]
+		response = append(response, map[string]interface{}{
+			"date":  price.Date.Format("2006-01-02"),
+			"close": price.Close.InexactFloat64(),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"symbol": "VNM",
+		"prices": response,
 	})
 }
 
