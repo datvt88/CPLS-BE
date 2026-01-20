@@ -175,6 +175,13 @@ func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate tim
 			changePercent = (data.Close - data.Open) / data.Open * 100
 		}
 
+		volume := math.Round(data.Volume)
+		if volume < 0 {
+			volume = 0
+		} else if volume > float64(math.MaxInt64) {
+			volume = float64(math.MaxInt64)
+		}
+
 		price := models.StockPrice{
 			StockID:       stock.ID,
 			Date:          priceDate,
@@ -182,7 +189,7 @@ func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate tim
 			High:          decimal.NewFromFloat(data.High),
 			Low:           decimal.NewFromFloat(data.Low),
 			Close:         decimal.NewFromFloat(data.Close),
-			Volume:        int64(math.Round(data.Volume)),
+			Volume:        int64(volume),
 			Value:         decimal.NewFromFloat(data.Value),
 			AdjClose:      decimal.NewFromFloat(data.Close),
 			Change:        decimal.NewFromFloat(change),
