@@ -204,8 +204,12 @@ function renderFallbackChart(canvas, points) {
     const context = canvas.getContext('2d');
     if (!context) return;
 
-    canvas.width = canvas.clientWidth;
-    canvas.height = canvas.clientHeight;
+    const ratio = window.devicePixelRatio || 1;
+    const width = canvas.clientWidth || 600;
+    const height = canvas.clientHeight || 300;
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
     const padding = 20;
     const values = points.map(point => point.close);
@@ -213,14 +217,14 @@ function renderFallbackChart(canvas, points) {
     const maxValue = Math.max(...values);
     const range = maxValue - minValue || 1;
 
-    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.clearRect(0, 0, width, height);
     context.strokeStyle = '#3498db';
     context.lineWidth = 2;
     context.beginPath();
 
     points.forEach((point, index) => {
-        const x = padding + (index / (points.length - 1)) * (canvas.width - padding * 2);
-        const y = canvas.height - padding - ((point.close - minValue) / range) * (canvas.height - padding * 2);
+        const x = padding + (index / (points.length - 1)) * (width - padding * 2);
+        const y = height - padding - ((point.close - minValue) / range) * (height - padding * 2);
         if (index === 0) {
             context.moveTo(x, y);
         } else {

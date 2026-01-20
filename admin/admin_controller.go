@@ -101,15 +101,20 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 	})
 }
 
+const (
+	defaultVNMPriceLimit = 90
+	maxVNMPriceLimit     = 365
+)
+
 // VNMPriceHistory returns VNM daily close history for admin chart
 func (ac *AdminController) VNMPriceHistory(c *gin.Context) {
 	if !ac.requireDatabaseAvailable(c) {
 		return
 	}
 
-	limit, err := strconv.Atoi(c.DefaultQuery("limit", "90"))
-	if err != nil || limit <= 0 || limit > 365 {
-		limit = 90
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", strconv.Itoa(defaultVNMPriceLimit)))
+	if err != nil || limit <= 0 || limit > maxVNMPriceLimit {
+		limit = defaultVNMPriceLimit
 	}
 
 	var stock models.Stock

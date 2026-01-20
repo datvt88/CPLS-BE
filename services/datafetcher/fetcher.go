@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,9 +75,19 @@ type VNDirectStockListResponse struct {
 }
 
 const (
-	vndirectStockListURL   = "https://finfo-api.vndirect.com.vn/v4/stocks?size=2000"
+	vndirectStockListSize  = 2000
 	vndirectPriceBatchSize = 400
 )
+
+func vndirectStockListURL() string {
+	size := vndirectStockListSize
+	if sizeEnv := os.Getenv("VNDIRECT_STOCK_LIST_SIZE"); sizeEnv != "" {
+		if parsed, err := strconv.Atoi(sizeEnv); err == nil && parsed > 0 {
+			size = parsed
+		}
+	}
+	return fmt.Sprintf("https://finfo-api.vndirect.com.vn/v4/stocks?size=%d", size)
+}
 
 // FetchStockList fetches list of all stocks from Vietnamese exchanges
 func (df *DataFetcher) FetchStockList() error {
@@ -175,7 +187,7 @@ func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate tim
 
 // FetchVNDirectStockList fetches stock symbols from VNDirect API
 func (df *DataFetcher) FetchVNDirectStockList() error {
-	resp, err := df.httpClient.Get(vndirectStockListURL)
+	resp, err := df.httpClient.Get(vndirectStockListURL())
 	if err != nil {
 		return fmt.Errorf("failed to fetch VNDirect stock list: %w", err)
 	}
@@ -326,7 +338,7 @@ func (df *DataFetcher) FetchVNDirectDailyCloseHistory(symbol string, startDate, 
 		high := decimal.NewFromFloat(item.High)
 		low := decimal.NewFromFloat(item.Low)
 		closePrice := decimal.NewFromFloat(item.Close)
-		// VNDirect may omit value data; avoid estimating to keep calculations explicit.
+		// VNDirect may omit value data; keep zero if not provided.
 		value := decimal.NewFromFloat(item.Value)
 		changeBase := open
 		if !previousClose.Equal(decimal.Zero) {
@@ -359,27 +371,24 @@ func (df *DataFetcher) FetchVNDirectDailyCloseHistory(symbol string, startDate, 
 			if err := df.db.Create(&price).Error; err != nil {
 				return fmt.Errorf("failed to create price for %s on %s: %w", symbol, normalizedDate, err)
 			}
-			previousClose = closePrice
-			continue
-		}
-		if err != nil {
+		} else if err != nil {
 			return fmt.Errorf("failed to load existing price: %w", err)
-		}
+		} else {
+			updates := map[string]interface{}{
+				"open":           price.Open,
+				"high":           price.High,
+				"low":            price.Low,
+				"close":          price.Close,
+				"volume":         price.Volume,
+				"value":          price.Value,
+				"adj_close":      price.AdjClose,
+				"change":         price.Change,
+				"change_percent": price.ChangePercent,
+			}
 
-		updates := map[string]interface{}{
-			"open":           price.Open,
-			"high":           price.High,
-			"low":            price.Low,
-			"close":          price.Close,
-			"volume":         price.Volume,
-			"value":          price.Value,
-			"adj_close":      price.AdjClose,
-			"change":         price.Change,
-			"change_percent": price.ChangePercent,
-		}
-
-		if err := df.db.Model(&existing).Updates(updates).Error; err != nil {
-			return fmt.Errorf("failed to update price for %s on %s: %w", symbol, normalizedDate, err)
+			if err := df.db.Model(&existing).Updates(updates).Error; err != nil {
+				return fmt.Errorf("failed to update price for %s on %s: %w", symbol, normalizedDate, err)
+			}
 		}
 
 		previousClose = closePrice

@@ -19,6 +19,8 @@ type Scheduler struct {
 	technicalAnalysis *analysis.TechnicalAnalysis
 }
 
+const vnmHistoryLookbackYears = 1
+
 // NewScheduler creates a new scheduler instance
 func NewScheduler(db *gorm.DB) *Scheduler {
 	return &Scheduler{
@@ -150,7 +152,7 @@ func (s *Scheduler) fetchVNMDailyCloseHistory() {
 	log.Println("Fetching VNM daily close history...")
 
 	endDate := time.Now()
-	startDate := endDate.AddDate(-1, 0, 0)
+	startDate := endDate.AddDate(-vnmHistoryLookbackYears, 0, 0)
 	if err := s.dataFetcher.FetchVNDirectDailyCloseHistory("VNM", startDate, endDate); err != nil {
 		log.Printf("Error fetching VNM daily close history: %v", err)
 		return
