@@ -76,7 +76,7 @@ func (df *DataFetcher) FetchStockList() error {
 
 	vnStocks, err := services.FetchStocksFromVNDirect()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to fetch VNDirect stock list: %w", err)
 	}
 	if len(vnStocks) == 0 {
 		return fmt.Errorf("VNDirect stock list is empty")
@@ -175,12 +175,13 @@ func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate tim
 			changePercent = (data.Close - data.Open) / data.Open * 100
 		}
 
-		volume := math.Round(data.Volume)
+		volume := data.Volume
 		if volume < 0 {
 			volume = 0
 		} else if volume > float64(math.MaxInt64) {
 			volume = float64(math.MaxInt64)
 		}
+		volume = math.Round(volume)
 
 		price := models.StockPrice{
 			StockID:       stock.ID,
@@ -304,7 +305,7 @@ func (df *DataFetcher) fetchVNDirectPrices(symbol string, startDate, endDate tim
 	}
 
 	if len(response.Data) == 0 {
-		return nil, fmt.Errorf("no price data returned for %s (%s to %s)", symbol, fromDate, toDate)
+		return nil, fmt.Errorf("no price data returned for %s (%s to %s) - stock may not exist or no trading data available for this period", symbol, fromDate, toDate)
 	}
 
 	return response.Data, nil
