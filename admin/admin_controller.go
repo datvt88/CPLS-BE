@@ -30,13 +30,11 @@ type AdminController struct {
 func NewAdminController(db *gorm.DB, tradingBot *trading.TradingBot) *AdminController {
 	var dataFetcher *datafetcher.DataFetcher
 	var backtestEngine *backtesting.BacktestEngine
-	
 	// Only initialize services that require database if db is available
 	if db != nil {
 		dataFetcher = datafetcher.NewDataFetcher(db)
 		backtestEngine = backtesting.NewBacktestEngine(db)
 	}
-	
 	return &AdminController{
 		db:             db,
 		dataFetcher:    dataFetcher,
@@ -61,6 +59,8 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 			"adminUser":     adminUser,
 			"page":          "dashboard",
 			"title":         "Dashboard",
+			"latestPrices":  []models.StockPrice{},
+			"priceError":    "",
 			"dbError":       "Database not connected. Please wait for system initialization.",
 		})
 		return
@@ -82,6 +82,22 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 	var userCount int64
 	ac.db.Model(&models.User{}).Count(&userCount)
 
+	var latestPrices []models.StockPrice
+	var priceError string
+	latestPriceSubquery := ac.db.Model(&models.StockPrice{}).
+		Select("stock_id, MAX(date) AS max_date").
+		Group("stock_id")
+	priceQuery := ac.db.Model(&models.StockPrice{}).
+		Joins("JOIN (?) AS latest ON stock_prices.stock_id = latest.stock_id AND stock_prices.date = latest.max_date", latestPriceSubquery).
+		Preload("Stock").
+		Order("stock_prices.date DESC").
+		Limit(10).
+		Find(&latestPrices)
+	if priceQuery.Error != nil {
+		priceError = priceQuery.Error.Error()
+		latestPrices = []models.StockPrice{}
+	}
+
 	// Check if trading bot is running (handle nil gracefully)
 	botRunning := false
 	if ac.tradingBot != nil {
@@ -98,6 +114,8 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 		"adminUser":     adminUser,
 		"page":          "dashboard",
 		"title":         "Dashboard",
+		"latestPrices":  latestPrices,
+		"priceError":    priceError,
 	})
 }
 
