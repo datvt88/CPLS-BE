@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -51,6 +52,8 @@ type VNDirectPriceResponse struct {
 	Data []VNDirectPriceData `json:"data"`
 }
 
+const vnDirectDateLayout = "2006-01-02"
+
 // VNDirectPriceData represents VNDirect daily price data
 type VNDirectPriceData struct {
 	Code      string  `json:"code"`
@@ -74,6 +77,9 @@ func (df *DataFetcher) FetchStockList() error {
 	vnStocks, err := services.FetchStocksFromVNDirect()
 	if err != nil {
 		return err
+	}
+	if len(vnStocks) == 0 {
+		return fmt.Errorf("VNDirect stock list is empty")
 	}
 
 	for _, vnStock := range vnStocks {
@@ -100,7 +106,7 @@ func (df *DataFetcher) FetchStockList() error {
 
 		var listingDate *time.Time
 		if vnStock.ListedDate != "" {
-			if parsedDate, err := time.Parse("2006-01-02", vnStock.ListedDate); err == nil {
+			if parsedDate, err := time.Parse(vnDirectDateLayout, vnStock.ListedDate); err == nil {
 				listingDate = &parsedDate
 			}
 		}
@@ -155,7 +161,7 @@ func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate tim
 	}
 
 	for _, data := range priceData {
-		priceDate, err := time.Parse("2006-01-02", data.Date)
+		priceDate, err := time.Parse(vnDirectDateLayout, data.Date)
 		if err != nil {
 			continue
 		}
@@ -176,7 +182,7 @@ func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate tim
 			High:          decimal.NewFromFloat(data.High),
 			Low:           decimal.NewFromFloat(data.Low),
 			Close:         decimal.NewFromFloat(data.Close),
-			Volume:        int64(data.Volume),
+			Volume:        int64(math.Round(data.Volume)),
 			Value:         decimal.NewFromFloat(data.Value),
 			AdjClose:      decimal.NewFromFloat(data.Close),
 			Change:        decimal.NewFromFloat(change),
@@ -261,8 +267,8 @@ func (df *DataFetcher) FetchVNDirectData(symbol string) error {
 
 func (df *DataFetcher) fetchVNDirectPrices(symbol string, startDate, endDate time.Time) ([]VNDirectPriceData, error) {
 	escapedSymbol := url.QueryEscape(strings.ToUpper(strings.TrimSpace(symbol)))
-	fromDate := startDate.Format("2006-01-02")
-	toDate := endDate.Format("2006-01-02")
+	fromDate := startDate.Format(vnDirectDateLayout)
+	toDate := endDate.Format(vnDirectDateLayout)
 	apiURL := fmt.Sprintf("https://finfo-api.vndirect.com.vn/v4/stock_prices?symbols=%s&from=%s&to=%s&sort=date",
 		escapedSymbol, fromDate, toDate)
 
@@ -273,7 +279,10 @@ func (df *DataFetcher) fetchVNDirectPrices(symbol string, startDate, endDate tim
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("VNDirect API error (status %d) and failed to read body: %w", resp.StatusCode, readErr)
+		}
 		return nil, fmt.Errorf("VNDirect API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
@@ -288,7 +297,7 @@ func (df *DataFetcher) fetchVNDirectPrices(symbol string, startDate, endDate tim
 	}
 
 	if len(response.Data) == 0 {
-		return nil, fmt.Errorf("no price data returned for %s", symbol)
+		return nil, fmt.Errorf("no price data returned for %s (%s to %s)", symbol, fromDate, toDate)
 	}
 
 	return response.Data, nil

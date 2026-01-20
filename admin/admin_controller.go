@@ -62,6 +62,7 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 			"page":          "dashboard",
 			"title":         "Dashboard",
 			"latestPrices":  []models.StockPrice{},
+			"priceError":    "",
 			"dbError":       "Database not connected. Please wait for system initialization.",
 		})
 		return
@@ -84,10 +85,20 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 	ac.db.Model(&models.User{}).Count(&userCount)
 
 	var latestPrices []models.StockPrice
-	ac.db.Preload("Stock").
-		Order("date DESC").
+	var priceError string
+	latestPriceSubquery := ac.db.Model(&models.StockPrice{}).
+		Select("stock_id, MAX(date) AS max_date").
+		Group("stock_id")
+	priceQuery := ac.db.Model(&models.StockPrice{}).
+		Joins("JOIN (?) AS latest ON stock_prices.stock_id = latest.stock_id AND stock_prices.date = latest.max_date", latestPriceSubquery).
+		Preload("Stock").
+		Order("stock_prices.date DESC").
 		Limit(10).
 		Find(&latestPrices)
+	if priceQuery.Error != nil {
+		priceError = priceQuery.Error.Error()
+		latestPrices = []models.StockPrice{}
+	}
 
 	// Check if trading bot is running (handle nil gracefully)
 	botRunning := false
@@ -106,6 +117,7 @@ func (ac *AdminController) Dashboard(c *gin.Context) {
 		"page":          "dashboard",
 		"title":         "Dashboard",
 		"latestPrices":  latestPrices,
+		"priceError":    priceError,
 	})
 }
 

@@ -113,6 +113,11 @@
                 <h5><i class="bi bi-bar-chart-line"></i> Latest Stock Prices (VNDirect)</h5>
             </div>
             <div class="card-body">
+                {{ if .priceError }}
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i> Unable to load latest prices: {{ .priceError }}
+                </div>
+                {{ end }}
                 {{ if .latestPrices }}
                 <div class="table-responsive">
                     <table class="table table-hover align-middle">
