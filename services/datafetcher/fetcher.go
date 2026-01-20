@@ -176,10 +176,13 @@ func (df *DataFetcher) FetchHistoricalData(symbol string, startDate, endDate tim
 		}
 
 		volume := data.Volume
-		if volume < 0 {
+		maxVolume := float64(math.MaxInt64 - 1)
+		if math.IsNaN(volume) {
 			volume = 0
-		} else if volume > float64(math.MaxInt64) {
-			volume = float64(math.MaxInt64)
+		} else if volume < 0 {
+			volume = 0
+		} else if volume > maxVolume || math.IsInf(volume, 0) {
+			volume = maxVolume
 		}
 		volume = math.Round(volume)
 
@@ -305,7 +308,7 @@ func (df *DataFetcher) fetchVNDirectPrices(symbol string, startDate, endDate tim
 	}
 
 	if len(response.Data) == 0 {
-		return nil, fmt.Errorf("no price data returned for %s (%s to %s) - stock may not exist or no trading data available for this period", symbol, fromDate, toDate)
+		return nil, fmt.Errorf("no price data returned for %s (%s to %s) - verify symbol and date range or VNDirect availability", symbol, fromDate, toDate)
 	}
 
 	return response.Data, nil
