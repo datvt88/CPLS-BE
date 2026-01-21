@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -720,7 +721,7 @@ func (ac *AdminController) CreateConditionGroupAction(c *gin.Context) {
 // UpdateConditionGroupAction updates a condition group
 func (ac *AdminController) UpdateConditionGroupAction(c *gin.Context) {
 	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
@@ -758,7 +759,7 @@ func (ac *AdminController) UpdateConditionGroupAction(c *gin.Context) {
 // DeleteConditionGroupAction deletes a condition group
 func (ac *AdminController) DeleteConditionGroupAction(c *gin.Context) {
 	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
@@ -830,7 +831,7 @@ func (ac *AdminController) AddConditionAction(c *gin.Context) {
 // UpdateConditionAction updates a condition
 func (ac *AdminController) UpdateConditionAction(c *gin.Context) {
 	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
@@ -880,7 +881,7 @@ func (ac *AdminController) UpdateConditionAction(c *gin.Context) {
 // DeleteConditionAction deletes a condition
 func (ac *AdminController) DeleteConditionAction(c *gin.Context) {
 	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
@@ -965,7 +966,7 @@ func (ac *AdminController) CreateSignalRuleAction(c *gin.Context) {
 // UpdateSignalRuleAction updates a signal rule
 func (ac *AdminController) UpdateSignalRuleAction(c *gin.Context) {
 	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
@@ -1029,7 +1030,7 @@ func (ac *AdminController) UpdateSignalRuleAction(c *gin.Context) {
 // DeleteSignalRuleAction deletes a signal rule
 func (ac *AdminController) DeleteSignalRuleAction(c *gin.Context) {
 	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
@@ -1315,4 +1316,36 @@ func (ac *AdminController) CreateTemplateFromGroupAction(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Template created", "id": template.ID})
+}
+
+// DeleteTemplateAction deletes a non-built-in template
+func (ac *AdminController) DeleteTemplateAction(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		return
+	}
+
+	var template models.SignalTemplate
+	if err := ac.db.First(&template, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Template not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load template"})
+		return
+	}
+
+	if template.IsBuiltIn {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Built-in templates cannot be deleted"})
+		return
+	}
+
+	if err := ac.db.Delete(&models.SignalTemplate{}, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete template"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Template deleted"})
 }
