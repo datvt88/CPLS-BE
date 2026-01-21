@@ -291,6 +291,7 @@ func setupProtectedRoutesImpl(router *gin.Engine, db *gorm.DB, tradingBot *tradi
 			signalConds.GET("/templates", adminController.GetTemplatesAction)
 			signalConds.GET("/templates/:id/test", adminController.TestTemplateAction)
 			signalConds.POST("/templates/from-group", adminController.CreateTemplateFromGroupAction)
+			signalConds.DELETE("/templates/:id", adminController.DeleteTemplateAction)
 
 			// Testing
 			signalConds.GET("/test", adminController.TestStockWithConditionsAction)

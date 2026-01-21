@@ -941,8 +941,29 @@ function editRule(id) {
 
 function deleteTemplate(id) {
     if (!confirm('Delete this template?')) return;
-    // TODO: Implement
-    alert('Delete template - Coming soon!');
+    fetch(`${API_BASE}/signal-conditions/templates/${id}`, {
+        method: 'DELETE'
+    })
+    .then(async response => {
+        let data = {};
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            try {
+                data = await response.json();
+            } catch (parseError) {
+                if (response.ok) {
+                    throw parseError;
+                }
+            }
+        }
+        if (!response.ok || data.error) {
+            throw new Error(data.error || 'Failed to delete template');
+        }
+        location.reload();
+    })
+    .catch(error => {
+        alert('Failed to delete template: ' + error.message);
+    });
 }
 </script>
 {{ end }}
